@@ -50,9 +50,23 @@ def test_reports_dir_defaults_to_kaggle_working_when_present(monkeypatch):
             return True
         return real_exists(self)
 
+    mkdir_calls: list[Path] = []
+    real_mkdir = Path.mkdir
+
+    def fake_mkdir(self, *args, **kwargs):
+        # Real Kaggle notebooks have /kaggle/working already mounted and
+        # writable; this sandbox does not, so record the call instead of
+        # touching the real filesystem while still exercising the code path.
+        if str(self).startswith("/kaggle"):
+            mkdir_calls.append(self)
+            return None
+        return real_mkdir(self, *args, **kwargs)
+
     monkeypatch.setattr(Path, "exists", fake_exists)
+    monkeypatch.setattr(Path, "mkdir", fake_mkdir)
     p = _paths(monkeypatch)
     assert str(p.REPORTS_DIR) == "/kaggle/working/reports"
+    assert Path("/kaggle/working/reports") in mkdir_calls
 
 
 def test_reports_dir_falls_back_locally(monkeypatch):
@@ -66,6 +80,28 @@ def test_reports_dir_env_override(monkeypatch, tmp_path):
     p = _paths(monkeypatch, ROGII_REPORTS_DIR=str(tmp_path / "r"))
     assert p.REPORTS_DIR == tmp_path / "r"
     assert p.ensure_reports_dir().is_dir()
+
+
+def test_reports_dir_exists_after_import_kaggle(monkeypatch, tmp_path):
+    """Regression: importing src.paths must create REPORTS_DIR, not just resolve it.
+
+    Simulates the Kaggle layout by pointing REPORTS_DIR (via the env override,
+    since /kaggle is not writable in CI) at a fresh, non-existent directory and
+    asserting it exists immediately after import — with no explicit call to
+    ensure_reports_dir().
+    """
+    fake_reports = tmp_path / "kaggle_working" / "reports"
+    assert not fake_reports.exists()
+    p = _paths(monkeypatch, ROGII_REPORTS_DIR=str(fake_reports))
+    assert p.REPORTS_DIR == fake_reports
+    assert p.REPORTS_DIR.is_dir()
+
+
+def test_reports_dir_exists_after_import_local(monkeypatch):
+    """Regression: the local (repo-relative) REPORTS_DIR is also auto-created."""
+    p = _paths(monkeypatch)
+    assert "/kaggle/working" not in str(p.REPORTS_DIR)
+    assert p.REPORTS_DIR.is_dir()
 
 
 def test_require_competition_data_message(monkeypatch, tmp_path):

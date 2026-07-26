@@ -11,7 +11,10 @@ Reports default to ``/kaggle/working/reports`` on Kaggle, and to
 runs never try to write into a non-existent ``/kaggle``.
 
 Safe to import from a Kaggle Notebook cell: nothing here needs ``__file__``
-(undefined in a cell) and no directory is created at import time.
+(undefined in a cell). ``REPORTS_DIR`` itself *is* created at import time
+(via ``mkdir(parents=True, exist_ok=True)``) so downstream code and path
+validation can always rely on it existing; this is the only directory
+created as a side effect of importing this module.
 """
 from __future__ import annotations
 
@@ -85,6 +88,7 @@ def _resolve_reports_dir() -> Path:
 
 
 REPORTS_DIR = _resolve_reports_dir()
+REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
 # --- auxiliary mounted datasets ------------------------------------------
 DATASETS_ROOT = Path(os.environ.get("ROGII_DATASETS_ROOT", str(KAGGLE_INPUT / "datasets")))
@@ -103,7 +107,12 @@ SUBMISSION_PATH = (KAGGLE_WORKING if KAGGLE_WORKING.exists() else REPO_ROOT) / S
 
 
 def ensure_reports_dir() -> Path:
-    """Create and return the reports directory (call sites only, never import)."""
+    """Return the reports directory, (re)creating it if needed.
+
+    ``REPORTS_DIR`` is already created at import time, so this is mostly a
+    convenience for call sites that want an explicit, idempotent guarantee
+    (e.g. after deleting the directory mid-run).
+    """
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     return REPORTS_DIR
 
