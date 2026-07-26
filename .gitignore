@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.venv/
+submission.csv
+reports/*.csv
+reports/*.md
+reports/task_presentation_images/
+!reports/decision_table.md
+!reports/README.md
