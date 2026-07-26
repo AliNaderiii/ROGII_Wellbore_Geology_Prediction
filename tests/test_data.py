@@ -27,7 +27,7 @@ def test_discover_wells_train_and_test(mount):
 
 
 def test_missing_competition_directory_raises_clear_error(tmp_path, monkeypatch):
-    monkeypatch.setenv("ROGII_KAGGLE_ROOT", str(tmp_path / "nope"))
+    monkeypatch.setenv("ROGII_COMPETITION_ROOT", str(tmp_path / "nope"))
     import src.paths
     importlib.reload(src.paths)
     with pytest.raises(src.paths.CompetitionDataMissing) as exc:
@@ -187,3 +187,84 @@ def test_load_horizontal_well_preserves_row_order_exactly(mount):
     hw = d.load_horizontal_well(files)
     assert np.allclose(hw["MD"].to_numpy(), raw["MD"].to_numpy())
     assert list(hw.columns)[0] == "row_index"
+
+
+# ------------------------------------------------ Kaggle-environment specifics --
+
+def test_is_hidden_column_materialised(mount):
+    d = _data()
+    well = d.load_well("TRW001", "train")
+    assert "is_visible" in well.hw.columns and "is_hidden" in well.hw.columns
+    assert (well.hw["is_visible"] ^ well.hw["is_hidden"]).all()
+    assert np.array_equal(well.hidden_mask, ~well.visible_mask)
+
+
+def test_md_step_is_one_foot(mount):
+    d = _data()
+    s = d.summarize_well(d.load_well("TRW001", "train"))
+    assert s["md_step_median"] == pytest.approx(1.0)
+    assert s["md_step_is_one_foot"] is True
+    assert s["md_uniform_spacing"] is True
+    assert s["md_duplicates"] == 0
+    assert s["md_has_gaps"] is False
+
+
+def test_non_one_foot_spacing_is_flagged(mount, tmp_path):
+    d = _data()
+    dd = tmp_path / "spacing"
+    dd.mkdir()
+    n = 50
+    pd.DataFrame({
+        "MD": np.arange(n, dtype=float) * 0.5,     # half-foot grid
+        "GR": 1.0,
+        "TVT_input": [1.0] * 10 + [np.nan] * 40,
+    }).to_csv(dd / "SP001__horizontal_well.csv", index=False)
+    s = d.summarize_well(d.load_well("SP001", "train", directory=dd))
+    assert s["md_step_is_one_foot"] is False
+    issues = d.validate_split("train", directory=dd)
+    assert "md_step_not_one_foot" in set(issues["issue"])
+
+
+def test_duplicate_md_is_flagged(mount, tmp_path):
+    d = _data()
+    dd = tmp_path / "dupmd"
+    dd.mkdir()
+    md = np.arange(50, dtype=float)
+    md[10] = md[9]                                  # repeated depth reading
+    pd.DataFrame({
+        "MD": md, "GR": 1.0, "TVT_input": [1.0] * 10 + [np.nan] * 40,
+    }).to_csv(dd / "DM001__horizontal_well.csv", index=False)
+    s = d.summarize_well(d.load_well("DM001", "train", directory=dd))
+    assert s["md_duplicates"] == 1
+    issues = d.validate_split("train", directory=dd)
+    assert "duplicate_md_values" in set(issues["issue"])
+
+
+def test_inference_features_exclude_target(mount):
+    """Train wells carry the full TVT curve; it must never become a feature."""
+    d = _data()
+    well = d.load_well("TRW001", "train")
+    assert "TVT" in well.hw.columns              # label is present on disk
+    feats = well.inference_features()
+    assert "TVT" not in feats.columns
+    well.assert_no_target_leakage(feats)
+    with pytest.raises(ValueError, match="target column"):
+        well.assert_no_target_leakage(well.hw)
+
+
+def test_tvt_input_is_nan_on_hidden_region(mount):
+    """TVT_input is safe as a feature precisely because it stops at the boundary."""
+    d = _data()
+    well = d.load_well("TRW001", "train")
+    ti = pd.to_numeric(well.hw["TVT_input"], errors="coerce")
+    assert ti[well.visible_mask].notna().all()
+    assert ti[well.hidden_mask].isna().all()
+
+
+def test_target_accessor_is_explicit(mount):
+    d = _data()
+    well = d.load_well("TRW001", "train")
+    assert len(well.target("hidden")) == well.region_info["n_hidden"]
+    assert len(well.target("visible")) == well.region_info["n_visible"]
+    assert len(well.target("all")) == len(well.hw)
+    assert d.load_well("TSW001", "test").target() is None

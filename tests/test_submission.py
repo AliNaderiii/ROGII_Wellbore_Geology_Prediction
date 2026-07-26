@@ -194,3 +194,53 @@ def test_cli_json_output(sample_submission_path, tmp_path, capsys):
     assert payload["result"] == "PASS"
     assert payload["n_errors"] == 0
     assert isinstance(payload["checks"], list)
+
+
+# ----------------------------------------------- audit_sample_submission ---
+
+def test_audit_sample_submission_learns_contract(sample_submission_path):
+    m = _sub()
+    spec = m.audit_sample_submission(sample_submission_path)
+    assert spec.columns == ["id", "tvt"]
+    assert spec.id_column == "id"
+    assert spec.value_columns == ["tvt"]
+    assert spec.n_rows == 300              # 2 test wells x 150 hidden rows
+    assert spec.wells == ["TSW001", "TSW002"]
+    assert spec.rows_per_well == {"TSW001": 150, "TSW002": 150}
+    assert spec.id_is_wellid_plus_index is True
+    assert spec.id_pattern == "TSW<int>_<int>"
+    assert spec.n_duplicate_ids == 0
+    assert "300" in spec.describe()
+
+
+def test_audit_sample_submission_missing_file(tmp_path):
+    m = _sub()
+    with pytest.raises(FileNotFoundError):
+        m.audit_sample_submission(tmp_path / "nope.csv")
+
+
+def test_build_submission_enforces_sample_order(sample_submission_path):
+    m = _sub()
+    spec = m.audit_sample_submission(sample_submission_path)
+    shuffled = {i: float(n) for n, i in enumerate(reversed(spec.id_order))}
+    built = m.build_submission(shuffled, sample_submission_path)
+    assert built["id"].tolist() == spec.id_order
+    assert m.validate_submission(built, sample_submission_path).passed
+
+
+def test_build_submission_from_dataframe(sample_submission_path):
+    m = _sub()
+    spec = m.audit_sample_submission(sample_submission_path)
+    df = pd.DataFrame({"id": spec.id_order[::-1],
+                       "tvt": np.arange(spec.n_rows, dtype=float)})
+    built = m.build_submission(df, sample_submission_path)
+    assert built["id"].tolist() == spec.id_order
+    assert m.validate_submission(built, sample_submission_path).passed
+
+
+def test_build_submission_rejects_incomplete_predictions(sample_submission_path):
+    m = _sub()
+    spec = m.audit_sample_submission(sample_submission_path)
+    partial = {i: 1.0 for i in spec.id_order[:-2]}
+    with pytest.raises(KeyError, match="no prediction"):
+        m.build_submission(partial, sample_submission_path)

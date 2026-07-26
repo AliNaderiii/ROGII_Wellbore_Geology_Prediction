@@ -30,7 +30,8 @@ python scripts/run_all_audits.py           # all audits -> /kaggle/working/repor
 python scripts/smoke_test_loader.py        # data-loader smoke test (loads, never trains)
 python -m src.submission --submission submission.csv \
   --sample-submission /kaggle/input/competitions/rogii-wellbore-geology-prediction/sample_submission.csv
-python -m pytest tests -q                  # 39 tests, synthetic fixtures only
+python scripts/smoke_test_loader.py --expect-train 773 --expect-test 3 --full-scan
+python -m pytest tests -q                  # 59 tests, synthetic fixtures only
 ```
 
 From a Kaggle Notebook cell:
@@ -41,11 +42,23 @@ from scripts.run_all_audits import run_all
 run_all()
 ```
 
-The orchestrator never uses `__file__` (undefined in a notebook cell); it
-locates the repo by walking up from the CWD for `src/paths.py`, overridable
-with `ROGII_REPO_ROOT`. Reports go to `REPORTS_DIR`
-(`/kaggle/working/reports`), because the repo itself is not writable on
-Kaggle and may not be mounted under `/kaggle/working` at all.
+The orchestrator resolves the repo root from `__file__` when run as a script
+and by walking up from the CWD when imported into a notebook cell (where
+`__file__` is undefined); `ROGII_REPO_ROOT` overrides both.
+
+### Path resolution
+
+`COMPETITION_ROOT` is resolved in strict priority order:
+
+1. `$ROGII_COMPETITION_ROOT` — override for local dev, CI and tests
+2. `/kaggle/input/competitions/rogii-wellbore-geology-prediction` — Kaggle
+3. `<repo>/data/...` — local development fallback
+
+`REPORTS_DIR` defaults to `/kaggle/working/reports` when `/kaggle/working`
+exists, and to `<repo>/reports` otherwise, so a local run never tries to write
+into a non-existent `/kaggle`. `$ROGII_REPORTS_DIR` overrides it.
+`describe_paths()` prints the resolved table with an OK/MISSING flag per path,
+and the orchestrator emits it on every run.
 
 Offline-safe: only `pandas`/`numpy` are required; `python-pptx` is optional
 (a stdlib `zipfile` + `ElementTree` fallback extracts slide text without it).
@@ -101,4 +114,12 @@ tests/             pytest suite + synthetic fixtures (conftest.py)
    globally, since per-well calibration baselines differ.
 3. Split with GroupKFold at the well level; row-level splits leak.
 4. Anchor on the last known TVT of the prefix and model the residual.
+6. **Train wells carry the full TVT curve, including the hidden region.** Those
+   values are the label. Use `well.inference_features()` (drops TVT) for model
+   inputs and `well.target(region)` when you deliberately want the label;
+   `well.assert_no_target_leakage(frame)` fails loudly if TVT survives into a
+   feature matrix. `TVT_input` is safe: it is NaN past the boundary by
+   construction.
+7. The 3 visible test wells are for pipeline validation only — never tune on
+   them.
 5. Enforce ANCC→ASTNU→ASTNL→EGFDU→EGFDL→BUDA ordering in post-processing.

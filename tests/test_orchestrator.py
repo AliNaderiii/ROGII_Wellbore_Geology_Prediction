@@ -12,7 +12,7 @@ def _orch():
 
 
 def test_aborts_clearly_without_competition_data(tmp_path, monkeypatch, capsys):
-    monkeypatch.setenv("ROGII_KAGGLE_ROOT", str(tmp_path / "unmounted"))
+    monkeypatch.setenv("ROGII_COMPETITION_ROOT", str(tmp_path / "unmounted"))
     monkeypatch.setenv("ROGII_REPORTS_DIR", str(tmp_path / "reports"))
     import src.paths
     importlib.reload(src.paths)

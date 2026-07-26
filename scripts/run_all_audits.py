@@ -12,9 +12,9 @@ Kaggle Notebook cell:
 
 Notes
 -----
-* Never uses ``__file__`` for the repo root — that is undefined in a notebook
-  cell. The root is located by walking up from the current working directory
-  looking for the ``src/`` package, with an env-var override.
+* Uses ``__file__`` when run as a script, and falls back to walking up from
+  the CWD when imported into a notebook cell (where ``__file__`` is undefined).
+  ``$ROGII_REPO_ROOT`` overrides both.
 * Audits run in-process (imported), not as subprocesses, so this works when
   the code has been imported into a notebook.
 * Writes every report to REPORTS_DIR (/kaggle/working/reports by default).
@@ -33,16 +33,25 @@ from pathlib import Path
 # --------------------------------------------------------- repo bootstrap --
 
 def find_repo_root() -> Path:
-    """Locate the repository root without relying on __file__."""
+    """Locate the repository root.
+
+    Priority:
+      1. ``$ROGII_REPO_ROOT``
+      2. ``__file__`` — available when executed as ``python scripts/run_all_audits.py``
+      3. walking up from the CWD — the notebook path, where ``__file__`` is undefined
+    """
     override = os.environ.get("ROGII_REPO_ROOT")
     if override:
         return Path(override).resolve()
 
-    candidates: list[Path] = [Path.cwd().resolve(), *Path.cwd().resolve().parents]
-    # when run as a script, the script's directory is a good hint too
-    if "__file__" in globals():
-        here = Path(globals()["__file__"]).resolve()
-        candidates = [here.parent.parent, *candidates]
+    candidates: list[Path] = []
+    try:
+        candidates.append(Path(__file__).resolve().parent.parent)
+    except NameError:
+        pass  # imported/exec'd in a notebook cell
+    cwd = Path.cwd().resolve()
+    candidates += [cwd, *cwd.parents]
+
     for base in candidates:
         if (base / "src" / "paths.py").exists():
             return base
@@ -81,6 +90,7 @@ def run_all(*, skip_existing: bool = False, verbose: bool = True) -> dict:
         SAMPLE_SUBMISSION,
         TASK_PPTX,
         available,
+        describe_paths,
         ensure_reports_dir,
         require_competition_data,
     )
@@ -91,8 +101,8 @@ def run_all(*, skip_existing: bool = False, verbose: bool = True) -> dict:
     reports_dir = ensure_reports_dir()
     if verbose:
         print(f"repo root   : {root}")
-        print(f"competition : {COMPETITION_ROOT}")
-        print(f"reports dir : {reports_dir}\n")
+        print(describe_paths())
+        print()
 
     before = {p.name: p.stat().st_mtime for p in reports_dir.glob("**/*") if p.is_file()}
 

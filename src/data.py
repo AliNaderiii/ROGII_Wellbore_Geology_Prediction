@@ -213,7 +213,7 @@ class WellData:
 
     @property
     def hidden_mask(self) -> np.ndarray:
-        return ~self.visible_mask
+        return self.hw["is_hidden"].to_numpy()
 
     @property
     def prefix(self) -> pd.DataFrame:
@@ -230,6 +230,50 @@ class WellData:
     @property
     def has_target(self) -> bool:
         return self.roles.get("tvt") is not None
+
+    # ---------------------------------------------------------- leakage --
+    # In train wells the full TVT curve is present, including the hidden
+    # region. Those values are the *label*; feeding them to a model as an
+    # input feature reproduces the classic "predicting from the answer"
+    # failure. These accessors make the safe path the easy path.
+
+    LEAKY_ROLES = ("tvt",)
+
+    def inference_features(
+        self, *, drop: tuple[str, ...] = ("TVT", "tvt")
+    ) -> pd.DataFrame:
+        """Columns safe to use as model inputs.
+
+        Drops the TVT target column entirely. TVT_input is retained, but it is
+        NaN on the hidden region by construction, so it cannot leak.
+        """
+        cols = [c for c in self.hw.columns if c not in set(drop)]
+        tgt = self.roles.get("tvt")
+        if tgt and tgt in cols:
+            cols.remove(tgt)
+        return self.hw[cols]
+
+    def target(self, region: str = "hidden") -> pd.Series | None:
+        """The TVT label for a region. Explicit, so its use is always visible."""
+        tgt = self.roles.get("tvt")
+        if tgt is None:
+            return None
+        if region == "hidden":
+            return self.hw.loc[self.hidden_mask, tgt]
+        if region == "visible":
+            return self.hw.loc[self.visible_mask, tgt]
+        if region == "all":
+            return self.hw[tgt]
+        raise ValueError("region must be 'hidden', 'visible' or 'all'")
+
+    def assert_no_target_leakage(self, frame: pd.DataFrame) -> None:
+        """Raise if `frame` still carries the TVT target column."""
+        tgt = self.roles.get("tvt")
+        if tgt and tgt in frame.columns:
+            raise ValueError(
+                f"{self.well_id}: feature frame still contains the target column "
+                f"{tgt!r}. Use .inference_features() instead."
+            )
 
 
 def load_well(
@@ -265,6 +309,7 @@ def load_well(
 
     visible, info = identify_visible_prefix(hw, roles)
     hw["is_visible"] = visible
+    hw["is_hidden"] = ~visible
 
     tw = load_typewell(files)
     if tw is None and require_typewell:
@@ -324,6 +369,13 @@ def summarize_well(well: WellData) -> dict:
         rec["md_step_std"] = float(d.std()) if len(d) else np.nan
         rec["md_duplicates"] = int(md.duplicated().sum())
         rec["md_uniform_spacing"] = bool(len(d) and np.isclose(d.std(), 0.0, atol=1e-9))
+        rec["md_step_min"] = float(d.min()) if len(d) else np.nan
+        rec["md_step_max"] = float(d.max()) if len(d) else np.nan
+        # the competition grid is nominally one foot; flag any departure
+        rec["md_step_is_one_foot"] = bool(
+            len(d) and np.allclose(d.to_numpy(), 1.0, atol=1e-6)
+        )
+        rec["md_has_gaps"] = bool(len(d) and float(d.max()) > 1.5 * float(d.median()))
 
     gr_col = roles.get("gr")
     if gr_col:
@@ -411,6 +463,13 @@ def validate_split(
             issues.append((w.well_id, "missing_target_column", "cannot be used for supervision"))
         if split == "test" and s["target_available_on_hidden"]:
             issues.append((w.well_id, "TEST_LEAK_target_on_hidden_rows", "investigate before use"))
+        if s.get("md_duplicates", 0):
+            issues.append((w.well_id, "duplicate_md_values",
+                           f"{s['md_duplicates']} repeated MD readings"))
+        if s.get("md_step_is_one_foot") is False:
+            issues.append((w.well_id, "md_step_not_one_foot",
+                           f"median step {s.get('md_step_median')}, "
+                           f"min {s.get('md_step_min')}, max {s.get('md_step_max')}"))
         if s.get("n_hidden", 0) == 0:
             issues.append((w.well_id, "no_hidden_region", "nothing to predict"))
         if s.get("gr_high_missingness"):

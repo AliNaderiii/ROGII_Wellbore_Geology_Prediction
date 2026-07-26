@@ -289,6 +289,113 @@ def validate_submission(
     return rep
 
 
+@dataclass
+class SampleSpec:
+    """The submission contract, learned from sample_submission.csv."""
+    path: str
+    columns: list[str]
+    id_column: str
+    value_columns: list[str]
+    n_rows: int
+    id_order: list[str]
+    id_pattern: str
+    wells: list[str]
+    rows_per_well: dict[str, int]
+    id_is_wellid_plus_index: bool
+    value_dtypes: dict[str, str]
+    n_duplicate_ids: int
+
+    def describe(self) -> str:
+        return (
+            f"{self.n_rows:,} rows | columns={self.columns} | "
+            f"id='{self.id_column}' pattern='{self.id_pattern}' | "
+            f"{len(self.wells)} well(s) | dtypes={self.value_dtypes}"
+        )
+
+
+def _split_id(raw: str) -> tuple[str, str | None]:
+    """Split an id into (well part, trailing integer) when it looks composite."""
+    import re
+    m = re.match(r"^(.*?)[_\-:]?(\d+)$", str(raw))
+    if m:
+        return m.group(1).rstrip("_-:"), m.group(2)
+    return str(raw), None
+
+
+def audit_sample_submission(sample_submission_path=SAMPLE_SUBMISSION) -> SampleSpec:
+    """Learn the submission contract from the official sample file."""
+    import re
+    from collections import Counter
+
+    path = Path(sample_submission_path)
+    if not path.exists():
+        raise FileNotFoundError(f"sample submission not found: {path}")
+    df = pd.read_csv(path)
+
+    cols = [str(c) for c in df.columns]
+    id_col = cols[0]
+    value_cols = cols[1:]
+    ids = df[id_col].astype(str).tolist()
+
+    parts = [_split_id(i) for i in ids]
+    wells = [w for w, _ in parts]
+    tails = [t for _, t in parts]
+    per_well = Counter(wells)
+
+    composite = bool(ids) and all(t is not None for t in tails) and len(per_well) < len(ids)
+    monotone = False
+    if composite:
+        tmp = pd.DataFrame({"w": wells, "t": [int(t) for t in tails]})
+        monotone = bool(tmp.groupby("w")["t"].apply(lambda s: s.is_monotonic_increasing).all())
+
+    return SampleSpec(
+        path=str(path),
+        columns=cols,
+        id_column=id_col,
+        value_columns=value_cols,
+        n_rows=len(df),
+        id_order=ids,
+        id_pattern=re.sub(r"\d+", "<int>", ids[0]) if ids else "n/a",
+        wells=list(dict.fromkeys(wells)),
+        rows_per_well=dict(sorted(per_well.items())),
+        id_is_wellid_plus_index=composite and monotone,
+        value_dtypes={c: str(pd.to_numeric(df[c], errors="coerce").dtype) for c in value_cols},
+        n_duplicate_ids=int(df[id_col].duplicated().sum()),
+    )
+
+
+def build_submission(
+    predictions, sample_submission_path=SAMPLE_SUBMISSION
+) -> pd.DataFrame:
+    """Assemble a correctly ordered submission frame from an id -> value mapping.
+
+    Guarantees the sample's exact id order, which is the single most common
+    source of a silently wrong submission.
+    """
+    spec = audit_sample_submission(sample_submission_path)
+    val_col = spec.value_columns[0] if spec.value_columns else "tvt"
+
+    if isinstance(predictions, pd.DataFrame):
+        if spec.id_column not in predictions.columns:
+            raise KeyError(f"predictions must contain an '{spec.id_column}' column")
+        src_val = val_col if val_col in predictions.columns else predictions.columns[-1]
+        mapping = dict(zip(predictions[spec.id_column].astype(str), predictions[src_val]))
+    elif isinstance(predictions, pd.Series):
+        mapping = {str(k): v for k, v in predictions.items()}
+    else:
+        mapping = {str(k): v for k, v in dict(predictions).items()}
+
+    missing = [i for i in spec.id_order if i not in mapping]
+    if missing:
+        raise KeyError(
+            f"{len(missing)} sample ids have no prediction, e.g. {missing[:5]}"
+        )
+    return pd.DataFrame({
+        spec.id_column: spec.id_order,
+        val_col: [mapping[i] for i in spec.id_order],
+    })
+
+
 def write_submission(df: pd.DataFrame, path=None, *, sample_submission_path=SAMPLE_SUBMISSION) -> Path:
     """Validate then write. Refuses to write an invalid submission."""
     out = Path(path) if path is not None else Path(SUBMISSION_FILENAME)

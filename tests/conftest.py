@@ -27,7 +27,7 @@ def _hw_frame(
     seed: int = 0,
 ) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
-    md = np.arange(n, dtype=float) * 0.5 + 8000.0
+    md = np.arange(n, dtype=float) * 1.0 + 8000.0
     tvt = np.cumsum(rng.normal(0, 0.05, n)) + 20.0
     gr = 60 + 25 * np.sin(md / 40) + rng.normal(0, 5, n)
     if gr_missing is not None:
@@ -97,7 +97,8 @@ def mount(tmp_path: Path, monkeypatch) -> Path:
         rows += [{"id": f"{wid}_{r}", "tvt": 0.0} for r in range(50, 200)]
     pd.DataFrame(rows).to_csv(comp / "sample_submission.csv", index=False)
 
-    monkeypatch.setenv("ROGII_KAGGLE_ROOT", str(root))
+    monkeypatch.setenv("ROGII_COMPETITION_ROOT", str(comp))
+    monkeypatch.setenv("ROGII_DATASETS_ROOT", str(root / "input" / "datasets"))
     monkeypatch.setenv("ROGII_REPORTS_DIR", str(root / "working" / "reports"))
     monkeypatch.setenv("ROGII_REPO_ROOT", str(ROOT))
 
