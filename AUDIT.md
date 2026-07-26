@@ -18,10 +18,11 @@ The audit code targets the Kaggle mounts:
 Reports are written to `/kaggle/working/reports`, **not** into the repository,
 and are not committed: competition data must not be redistributed. The
 scripts are the deliverable; run them on Kaggle to produce the findings. They
-were verified end to end against a synthetic fixture (`tests/make_mock_mount.py`)
-that reproduces the documented file layout, including deliberately planted
-faults (non-monotonic MD, missing typewell, a leaky `submission_blend.csv`
-referencing a test well) — all of which the audits detect.
+were verified end to end against synthetic fixtures (`tests/conftest.py`) that
+reproduce the documented file layout, including deliberately planted faults
+(non-monotonic MD, duplicate MD, half-foot spacing, missing typewell, an
+internal `TVT_input` gap, and a leaky `submission_blend.csv` referencing a
+test well) — all of which the audits and validators detect.
 
 ## Run
 
