@@ -27,7 +27,12 @@ import sys
 import zipfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+try:
+    from scripts._bootstrap import bootstrap
+except ImportError:  # executed as a loose file, not as a package
+    sys.path.insert(0, str(Path.cwd()))
+    from scripts._bootstrap import bootstrap
+bootstrap()
 
 from src.discovery import discover_wells
 from src.paths import (
@@ -41,7 +46,6 @@ from src.paths import (
     ensure_reports_dir,
 )
 
-ensure_reports_dir()
 
 MODEL_EXT = {".pkl", ".joblib", ".sav", ".txt", ".json", ".bin", ".model",
              ".cbm", ".ubj", ".pt", ".pth", ".onnx", ".h5", ".keras", ".npz", ".npy"}
@@ -235,6 +239,7 @@ def leakage_scan(rows: list[dict]) -> list[dict]:
 
 
 def main() -> None:
+    ensure_reports_dir()
     rows: list[dict] = []
     for label, root in EXTERNAL_RESOURCES.items():
         rows += inventory_dir(root, label)

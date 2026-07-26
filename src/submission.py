@@ -1,181 +1,327 @@
-"""Reusable submission validator.
+"""Submission validation for the ROGII wellbore geology task.
 
-Usage
------
-    from src.submission import audit_sample_submission, validate_submission
+Library use
+-----------
+    from src.submission import validate_submission
+    report = validate_submission("submission.csv", SAMPLE_SUBMISSION)
+    print(report)          # human readable
+    report.passed          # bool
+    report.to_dict()       # structured
 
-    spec = audit_sample_submission()          # learns the contract from the sample
-    report = validate_submission(my_df, spec) # raises/returns issues
-    report.raise_if_failed()
+Command line
+------------
+    python -m src.submission \
+      --submission submission.csv \
+      --sample-submission /kaggle/input/competitions/rogii-wellbore-geology-prediction/sample_submission.csv
+
+Exit status is 0 on PASS and 1 on FAIL, so it can gate a pipeline.
 """
 from __future__ import annotations
 
-import re
+import argparse
+import json
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-from src.paths import SAMPLE_SUBMISSION
+from src.paths import SAMPLE_SUBMISSION, SUBMISSION_FILENAME
 
-SUBMISSION_FILENAME = "submission.csv"
+REQUIRED_COLUMNS = ["id", "tvt"]
 
+
+# ------------------------------------------------------------------ report --
 
 @dataclass
-class SubmissionSpec:
-    columns: list[str]
-    id_column: str
-    value_columns: list[str]
-    n_rows: int
-    id_order: list[str]
-    id_pattern: str
-    wells: list[str]
-    id_is_wellid_plus_index: bool
-    value_dtype: str = "float64"
+class Check:
+    name: str
+    passed: bool
+    detail: str = ""
+    severity: str = "error"  # "error" | "warning"
 
-    def describe(self) -> str:
-        return (
-            f"columns={self.columns}, rows={self.n_rows}, "
-            f"id_col='{self.id_column}', value_cols={self.value_columns}, "
-            f"wells={len(self.wells)}, id_pattern='{self.id_pattern}'"
-        )
+    @property
+    def status(self) -> str:
+        if self.passed:
+            return "PASS"
+        return "FAIL" if self.severity == "error" else "WARN"
 
 
 @dataclass
 class ValidationReport:
-    errors: list[str] = field(default_factory=list)
-    warnings: list[str] = field(default_factory=list)
+    submission_path: str = ""
+    sample_path: str = ""
+    n_rows: int = 0
+    checks: list[Check] = field(default_factory=list)
+
+    def add(self, name: str, passed: bool, detail: str = "", severity: str = "error") -> None:
+        self.checks.append(Check(name, passed, detail, severity))
 
     @property
-    def ok(self) -> bool:
+    def errors(self) -> list[Check]:
+        return [c for c in self.checks if not c.passed and c.severity == "error"]
+
+    @property
+    def warnings(self) -> list[Check]:
+        return [c for c in self.checks if not c.passed and c.severity == "warning"]
+
+    @property
+    def passed(self) -> bool:
         return not self.errors
 
+    # aliases
+    @property
+    def ok(self) -> bool:
+        return self.passed
+
+    @property
+    def result(self) -> str:
+        return "PASS" if self.passed else "FAIL"
+
     def raise_if_failed(self) -> None:
-        if self.errors:
-            raise ValueError("Submission invalid:\n  - " + "\n  - ".join(self.errors))
+        if not self.passed:
+            raise ValueError(
+                "Submission FAILED validation:\n  - "
+                + "\n  - ".join(f"{c.name}: {c.detail}" for c in self.errors)
+            )
+
+    def to_dict(self) -> dict:
+        return {
+            "result": self.result,
+            "submission": self.submission_path,
+            "sample_submission": self.sample_path,
+            "n_rows": self.n_rows,
+            "n_errors": len(self.errors),
+            "n_warnings": len(self.warnings),
+            "checks": [
+                {"name": c.name, "status": c.status, "detail": c.detail} for c in self.checks
+            ],
+        }
 
     def __str__(self) -> str:
-        out = ["OK" if self.ok else "FAILED"]
-        out += [f"  ERROR   {e}" for e in self.errors]
-        out += [f"  WARNING {w}" for w in self.warnings]
-        return "\n".join(out)
-
-
-def _split_id(raw: str) -> tuple[str, str | None]:
-    """Split an id into (well part, trailing integer) if it looks composite."""
-    m = re.match(r"^(.*?)[_\-:]?(\d+)$", str(raw))
-    if m:
-        return m.group(1).rstrip("_-:"), m.group(2)
-    return str(raw), None
-
-
-def audit_sample_submission(path: Path | None = None) -> SubmissionSpec:
-    path = path or SAMPLE_SUBMISSION
-    df = pd.read_csv(path)
-    cols = list(map(str, df.columns))
-    id_col = cols[0]
-    value_cols = cols[1:]
-
-    ids = df[id_col].astype(str).tolist()
-    wells, tails = zip(*(_split_id(i) for i in ids)) if ids else ((), ())
-    uniq_wells = list(dict.fromkeys(wells))
-
-    # Does the numeric tail restart per well and increase monotonically?
-    composite = all(t is not None for t in tails) and len(uniq_wells) < len(ids)
-    monotone_per_well = False
-    if composite:
-        tmp = pd.DataFrame({"w": wells, "t": [int(t) for t in tails]})
-        monotone_per_well = bool(
-            tmp.groupby("w")["t"].apply(lambda s: s.is_monotonic_increasing).all()
+        width = max((len(c.name) for c in self.checks), default=10)
+        lines = [f"Submission validation: {self.result}",
+                 f"  file   : {self.submission_path}",
+                 f"  sample : {self.sample_path}",
+                 f"  rows   : {self.n_rows:,}",
+                 ""]
+        for c in self.checks:
+            lines.append(f"  [{c.status:4}] {c.name:<{width}}  {c.detail}")
+        lines.append("")
+        lines.append(
+            f"  {len(self.errors)} error(s), {len(self.warnings)} warning(s) -> {self.result}"
         )
+        return "\n".join(lines)
 
-    sample_id = ids[0] if ids else ""
-    pattern = re.sub(r"\d+", "<int>", sample_id)
 
-    dtype = "float64"
-    if value_cols:
-        dtype = str(pd.to_numeric(df[value_cols[0]], errors="coerce").dtype)
+# -------------------------------------------------------------- validation --
 
-    return SubmissionSpec(
-        columns=cols,
-        id_column=id_col,
-        value_columns=value_cols,
-        n_rows=len(df),
-        id_order=ids,
-        id_pattern=pattern,
-        wells=uniq_wells,
-        id_is_wellid_plus_index=composite and monotone_per_well,
-        value_dtype=dtype,
-    )
+def _load(obj, label: str) -> tuple[pd.DataFrame | None, str, str | None]:
+    """Return (frame, display_path, error). Never raises on a bad path."""
+    if isinstance(obj, pd.DataFrame):
+        return obj.copy(), f"<in-memory {label}>", None
+    path = Path(obj)
+    if not path.exists():
+        return None, str(path), f"{label} file not found: {path}"
+    try:
+        return pd.read_csv(path), str(path), None
+    except Exception as exc:
+        return None, str(path), f"could not read {label}: {type(exc).__name__}: {exc}"
 
 
 def validate_submission(
-    sub: pd.DataFrame | Path | str,
-    spec: SubmissionSpec | None = None,
+    submission_path,
+    sample_submission_path=SAMPLE_SUBMISSION,
     *,
     require_exact_order: bool = True,
-    finite_only: bool = True,
     plausible_range: tuple[float, float] | None = None,
 ) -> ValidationReport:
-    spec = spec or audit_sample_submission()
+    """Validate a submission against sample_submission.csv.
+
+    Accepts paths or DataFrames. Always returns a report; it does not raise on
+    invalid input, so callers can inspect every failure at once.
+    """
     rep = ValidationReport()
 
-    if isinstance(sub, (str, Path)):
-        p = Path(sub)
-        if p.name != SUBMISSION_FILENAME:
-            rep.warnings.append(f"file is named '{p.name}', Kaggle expects '{SUBMISSION_FILENAME}'")
-        sub = pd.read_csv(p)
+    sub, sub_disp, sub_err = _load(submission_path, "submission")
+    sample, samp_disp, samp_err = _load(sample_submission_path, "sample_submission")
+    rep.submission_path, rep.sample_path = sub_disp, samp_disp
 
-    cols = list(map(str, sub.columns))
-    if cols != spec.columns:
-        rep.errors.append(f"columns {cols} != expected {spec.columns}")
+    if samp_err:
+        rep.add("sample_submission_readable", False, samp_err)
         return rep
+    rep.add("sample_submission_readable", True, f"{len(sample):,} reference rows")
 
-    if len(sub) != spec.n_rows:
-        rep.errors.append(f"row count {len(sub)} != expected {spec.n_rows}")
+    if sub_err:
+        rep.add("submission_readable", False, sub_err)
+        return rep
+    rep.add("submission_readable", True, "")
+    rep.n_rows = len(sub)
 
-    ids = sub[spec.id_column].astype(str).tolist()
-    if ids and ids[0] != spec.id_order[0]:
-        rep.warnings.append(f"first id '{ids[0]}' != sample first id '{spec.id_order[0]}'")
-    if sub[spec.id_column].duplicated().any():
-        rep.errors.append("duplicate ids present")
-    missing = set(spec.id_order) - set(ids)
-    extra = set(ids) - set(spec.id_order)
-    if missing:
-        rep.errors.append(f"{len(missing)} ids from the sample are missing (e.g. {sorted(missing)[:3]})")
-    if extra:
-        rep.errors.append(f"{len(extra)} ids not present in the sample (e.g. {sorted(extra)[:3]})")
-    if require_exact_order and not missing and not extra and ids != spec.id_order:
-        rep.errors.append("id ordering differs from sample_submission")
+    # -- filename -----------------------------------------------------------
+    if not isinstance(submission_path, pd.DataFrame):
+        name = Path(submission_path).name
+        rep.add(
+            "output_filename",
+            name == SUBMISSION_FILENAME,
+            f"file is '{name}', Kaggle expects '{SUBMISSION_FILENAME}'"
+            if name != SUBMISSION_FILENAME else f"'{name}'",
+            severity="warning",
+        )
 
-    for col in spec.value_columns:
-        v = pd.to_numeric(sub[col], errors="coerce")
-        if v.isna().any():
-            rep.errors.append(f"column '{col}' has {int(v.isna().sum())} NaN/non-numeric values")
-        if finite_only and np.isinf(v.to_numpy(dtype="float64", na_value=0.0)).any():
-            rep.errors.append(f"column '{col}' contains infinities")
-        if plausible_range is not None:
-            lo, hi = plausible_range
-            out = int(((v < lo) | (v > hi)).sum())
-            if out:
-                rep.warnings.append(f"column '{col}' has {out} values outside [{lo}, {hi}]")
-        if not pd.api.types.is_float_dtype(v):
-            rep.warnings.append(f"column '{col}' is not float dtype")
+    # -- columns ------------------------------------------------------------
+    sub_cols = [str(c) for c in sub.columns]
+    samp_cols = [str(c) for c in sample.columns]
+    expected = samp_cols if samp_cols else REQUIRED_COLUMNS
+    rep.add(
+        "exact_columns",
+        sub_cols == expected,
+        f"got {sub_cols}, expected {expected}",
+    )
+    unexpected = [c for c in sub_cols if c not in expected]
+    rep.add("no_unexpected_columns", not unexpected, f"unexpected: {unexpected}" if unexpected else "none")
+    missing_cols = [c for c in expected if c not in sub_cols]
+    rep.add("no_missing_columns", not missing_cols, f"missing: {missing_cols}" if missing_cols else "none")
+    if missing_cols:
+        return rep  # nothing further is meaningful
 
+    id_col, val_col = expected[0], expected[1] if len(expected) > 1 else "tvt"
+
+    # -- row count ----------------------------------------------------------
+    rep.add(
+        "row_count",
+        len(sub) == len(sample),
+        f"{len(sub):,} rows, expected {len(sample):,}",
+    )
+
+    # -- ids ----------------------------------------------------------------
+    sub_ids = sub[id_col].astype(str)
+    samp_ids = sample[id_col].astype(str)
+
+    dup_mask = sub_ids.duplicated()
+    rep.add(
+        "no_duplicate_ids",
+        not dup_mask.any(),
+        f"{int(dup_mask.sum())} duplicate ids, e.g. {sub_ids[dup_mask].unique()[:3].tolist()}"
+        if dup_mask.any() else "none",
+    )
+
+    sub_set, samp_set = set(sub_ids), set(samp_ids)
+    missing_ids = samp_set - sub_set
+    unknown_ids = sub_set - samp_set
+    rep.add(
+        "no_missing_ids",
+        not missing_ids,
+        f"{len(missing_ids)} ids absent, e.g. {sorted(missing_ids)[:3]}" if missing_ids else "none",
+    )
+    rep.add(
+        "no_unknown_ids",
+        not unknown_ids,
+        f"{len(unknown_ids)} ids not in sample, e.g. {sorted(unknown_ids)[:3]}" if unknown_ids else "none",
+    )
+
+    if require_exact_order:
+        same_order = len(sub) == len(sample) and sub_ids.tolist() == samp_ids.tolist()
+        detail = "matches sample_submission"
+        if not same_order and not missing_ids and not unknown_ids and len(sub) == len(sample):
+            first = next(
+                (i for i, (a, b) in enumerate(zip(sub_ids, samp_ids)) if a != b), None
+            )
+            detail = f"same id set but different order; first mismatch at row {first}"
+        elif not same_order:
+            detail = "id sequence differs from sample_submission"
+        rep.add("id_order", same_order, detail)
+
+    # -- duplicated rows ----------------------------------------------------
+    dup_rows = int(sub.duplicated().sum())
+    rep.add("no_duplicate_rows", dup_rows == 0, f"{dup_rows} fully duplicated rows" if dup_rows else "none")
+
+    # -- prediction column --------------------------------------------------
+    raw = sub[val_col]
+    numeric = pd.to_numeric(raw, errors="coerce")
+    non_numeric = int((numeric.isna() & raw.notna()).sum())
+    rep.add(
+        "numeric_dtype",
+        non_numeric == 0,
+        f"{non_numeric} non-numeric values in '{val_col}'" if non_numeric else f"'{val_col}' is numeric",
+    )
+
+    n_nan = int(raw.isna().sum())
+    rep.add("no_nan_predictions", n_nan == 0, f"{n_nan} NaN values" if n_nan else "none")
+
+    arr = numeric.to_numpy(dtype="float64", na_value=0.0)
+    n_inf = int(np.isinf(arr).sum())
+    rep.add("no_infinite_predictions", n_inf == 0, f"{n_inf} infinite values" if n_inf else "none")
+
+    # -- accidental prefix overwrite ---------------------------------------
+    # A constant column, or one that exactly reproduces the sample's placeholder,
+    # means predictions were never written.
+    if len(sample) and val_col in sample.columns and len(sub) == len(sample):
+        samp_vals = pd.to_numeric(sample[val_col], errors="coerce")
+        identical = bool(np.allclose(arr, samp_vals.to_numpy(dtype="float64", na_value=0.0), equal_nan=True))
+        rep.add(
+            "not_sample_placeholder",
+            not identical,
+            "values are identical to sample_submission — predictions not written?"
+            if identical else "differs from placeholder",
+            severity="warning",
+        )
+    finite = numeric.replace([np.inf, -np.inf], np.nan).dropna()
+    if len(finite):
+        constant = bool(finite.nunique() == 1)
+        rep.add(
+            "not_constant",
+            not constant,
+            f"all predictions equal {finite.iloc[0]}" if constant else f"{finite.nunique():,} distinct values",
+            severity="warning",
+        )
+
+    if plausible_range is not None and len(finite):
+        lo, hi = plausible_range
+        out = int(((finite < lo) | (finite > hi)).sum())
+        rep.add(
+            "plausible_range",
+            out == 0,
+            f"{out} values outside [{lo}, {hi}]" if out else f"within [{lo}, {hi}]",
+            severity="warning",
+        )
     return rep
 
 
-def write_submission(df: pd.DataFrame, path: Path | str = SUBMISSION_FILENAME) -> Path:
-    spec = audit_sample_submission()
-    rep = validate_submission(df, spec)
+def write_submission(df: pd.DataFrame, path=None, *, sample_submission_path=SAMPLE_SUBMISSION) -> Path:
+    """Validate then write. Refuses to write an invalid submission."""
+    out = Path(path) if path is not None else Path(SUBMISSION_FILENAME)
+    rep = validate_submission(df, sample_submission_path)
     rep.raise_if_failed()
-    p = Path(path)
-    df.to_csv(p, index=False)
-    return p
+    out.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(out, index=False)
+    return out
+
+
+# --------------------------------------------------------------------- CLI --
+
+def main(argv: list[str] | None = None) -> int:
+    p = argparse.ArgumentParser(
+        prog="python -m src.submission",
+        description="Validate a submission file against sample_submission.csv",
+    )
+    p.add_argument("--submission", required=True, help="path to submission.csv")
+    p.add_argument("--sample-submission", default=str(SAMPLE_SUBMISSION),
+                   help="path to the official sample_submission.csv")
+    p.add_argument("--allow-any-order", action="store_true",
+                   help="do not require the id order to match the sample")
+    p.add_argument("--json", action="store_true", help="emit the structured report as JSON")
+    args = p.parse_args(argv)
+
+    rep = validate_submission(
+        args.submission,
+        args.sample_submission,
+        require_exact_order=not args.allow_any_order,
+    )
+    print(json.dumps(rep.to_dict(), indent=2) if args.json else str(rep))
+    return 0 if rep.passed else 1
 
 
 if __name__ == "__main__":
-    spec = audit_sample_submission()
-    print(spec.describe())
-    print(validate_submission(pd.read_csv(SAMPLE_SUBMISSION), spec))
+    sys.exit(main())

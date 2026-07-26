@@ -20,7 +20,12 @@ import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+try:
+    from scripts._bootstrap import bootstrap
+except ImportError:  # executed as a loose file, not as a package
+    sys.path.insert(0, str(Path.cwd()))
+    from scripts._bootstrap import bootstrap
+bootstrap()
 
 import numpy as np
 import pandas as pd
@@ -34,7 +39,6 @@ from src.paths import (
     ensure_reports_dir,
 )
 
-REPORTS = ensure_reports_dir()
 
 
 def peek_schema(path: Path, nrows: int = 200) -> pd.DataFrame:
@@ -152,6 +156,7 @@ def summarise_well(well) -> dict:
 
 
 def main() -> None:
+    REPORTS = ensure_reports_dir()
     train = discover_wells(TRAIN_DIR, "train")
     test = discover_wells(TEST_DIR, "test")
     all_wells = {**{k: v for k, v in train.items()}, **{k: v for k, v in test.items()}}

@@ -15,8 +15,8 @@ The audit code targets the Kaggle mounts:
 /kaggle/input/datasets/ravaghi/wellbore-geology-prediction-artifacts
 ```
 
-Those mounts **do not exist in the development sandbox this code was written
-in**, so the reports in `reports/` are not checked in with real numbers. The
+Reports are written to `/kaggle/working/reports`, **not** into the repository,
+and are not committed: competition data must not be redistributed. The
 scripts are the deliverable; run them on Kaggle to produce the findings. They
 were verified end to end against a synthetic fixture (`tests/make_mock_mount.py`)
 that reproduces the documented file layout, including deliberately planted
@@ -26,13 +26,26 @@ referencing a test well) — all of which the audits detect.
 ## Run
 
 ```bash
-python scripts/run_all_audits.py          # sections 1-8
-# or individually
-python scripts/audit_competition_data.py  # 1
-python scripts/audit_task_presentation.py # 2
-python scripts/audit_submission.py        # 3
-python scripts/audit_external_resources.py# 4,5,6
+python scripts/run_all_audits.py           # all audits -> /kaggle/working/reports
+python scripts/smoke_test_loader.py        # data-loader smoke test (loads, never trains)
+python -m src.submission --submission submission.csv \
+  --sample-submission /kaggle/input/competitions/rogii-wellbore-geology-prediction/sample_submission.csv
+python -m pytest tests -q                  # 39 tests, synthetic fixtures only
 ```
+
+From a Kaggle Notebook cell:
+
+```python
+import sys; sys.path.insert(0, "/path/to/checkout")
+from scripts.run_all_audits import run_all
+run_all()
+```
+
+The orchestrator never uses `__file__` (undefined in a notebook cell); it
+locates the repo by walking up from the CWD for `src/paths.py`, overridable
+with `ROGII_REPO_ROOT`. Reports go to `REPORTS_DIR`
+(`/kaggle/working/reports`), because the repo itself is not writable on
+Kaggle and may not be mounted under `/kaggle/working` at all.
 
 Offline-safe: only `pandas`/`numpy` are required; `python-pptx` is optional
 (a stdlib `zipfile` + `ElementTree` fallback extracts slide text without it).
@@ -45,9 +58,11 @@ src/discovery.py   dynamic well discovery — no hardcoded well IDs
 src/columns.py     case/separator-insensitive column-role resolution
 src/submission.py  reusable submission validator (section 3)
 src/data.py        baseline loader: visible/hidden regions, well metadata (section 8)
+scripts/_bootstrap.py  notebook-safe sys.path setup (no __file__)
 scripts/           the five audit entrypoints
 reports/           generated output (git-ignored) + decision_table.md
-tests/             synthetic mount fixture
+scripts/smoke_test_loader.py   loader smoke test on the real mount
+tests/             pytest suite + synthetic fixtures (conftest.py)
 ```
 
 ## Safety posture

@@ -2,6 +2,7 @@ __pycache__/
 *.pyc
 .venv/
 submission.csv
+# reports are written to /kaggle/working/reports, not the repo
 reports/*.csv
 reports/*.md
 reports/task_presentation_images/

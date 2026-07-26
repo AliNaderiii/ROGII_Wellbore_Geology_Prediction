@@ -13,13 +13,15 @@ import sys
 import zipfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+try:
+    from scripts._bootstrap import bootstrap
+except ImportError:  # executed as a loose file, not as a package
+    sys.path.insert(0, str(Path.cwd()))
+    from scripts._bootstrap import bootstrap
+bootstrap()
 
 from src.paths import REPORTS_DIR, TASK_PPTX, ensure_reports_dir
 
-ensure_reports_dir()
-OUT = REPORTS_DIR / "task_presentation_summary.md"
-IMG_DIR = REPORTS_DIR / "task_presentation_images"
 
 
 def extract_with_pptx(path: Path) -> list[str]:
@@ -51,10 +53,10 @@ def extract_with_pptx(path: Path) -> list[str]:
             if shape.shape_type == 13:  # PICTURE
                 try:
                     img = shape.image
-                    IMG_DIR.mkdir(parents=True, exist_ok=True)
+                    (REPORTS_DIR / 'task_presentation_images').mkdir(parents=True, exist_ok=True)
                     name = f"slide{i:02d}_{shape.shape_id}.{img.ext}"
-                    (IMG_DIR / name).write_bytes(img.blob)
-                    lines.append(f"- ![embedded image]({IMG_DIR.name}/{name})")
+                    (REPORTS_DIR / 'task_presentation_images' / name).write_bytes(img.blob)
+                    lines.append(f"- ![embedded image](task_presentation_images/{name})")
                 except Exception as exc:  # pragma: no cover
                     lines.append(f"- (image extraction failed: {exc})")
         try:
@@ -92,6 +94,7 @@ def extract_with_zip(path: Path) -> list[str]:
 
 
 def main() -> None:
+    ensure_reports_dir()
     if not TASK_PPTX.exists():
         raise SystemExit(f"Presentation not found: {TASK_PPTX}")
 
@@ -129,6 +132,7 @@ def main() -> None:
         "before any of the external artifacts are promoted from",
         "'NEEDS FURTHER REVIEW' to 'USE'.",
     ]
+    OUT = REPORTS_DIR / 'task_presentation_summary.md'
     OUT.write_text("\n".join(header + body + footer), encoding="utf-8")
     print(f"Wrote {OUT}")
 
