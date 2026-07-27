@@ -13,7 +13,7 @@
 > **Do not quote any figure below as a real result.** Real metrics require
 > `scripts/run_validation.py` on the mounted Kaggle competition data.
 
-Generated 2026-07-27T09:01:21.189025+00:00. This file records what was actually
+Generated 2026-07-27T14:10:42.279075+00:00. This file records what was actually
 executed in the run that produced `validation_results.csv`. The authored design
 document is `reports/validation_protocol.md`.
 
@@ -64,15 +64,15 @@ to a new well) and can fail independently.
 | Points evaluated (per model) | 97,528 |
 | Wells skipped | 0 |
 | Failures | 0 |
-| Runtime (s) | 154.0 |
-| Peak RSS (MB) | 232 |
+| Runtime (s) | 158.5 |
+| Peak RSS (MB) | 226 |
 | Python | 3.11.2 |
 | Platform | Linux-6.1.158+-x86_64-with-glibc2.36 |
 | CPUs | 2 |
 | numpy / pandas | 2.4.6 / 3.0.5 |
 | LightGBM available | True |
-| Train dir | `/tmp/rogii_synthetic/competition/train` |
-| Test dir | `/tmp/rogii_synthetic/competition/test` |
+| Train dir | `/tmp/rogii_synth40/competition/train` |
+| Test dir | `/tmp/rogii_synth40/competition/test` |
 
 ## Public test well isolation
 
@@ -88,13 +88,13 @@ at the written results table. It has no disable flag.
 
 | protocol | fold | n_train_wells | n_valid_wells | seconds |
 |---|---|---|---|---|
-| same_well_masked | 0 | 30 | 10 | 17.521 |
-| same_well_masked | 1 | 30 | 10 | 17.529 |
-| same_well_masked | 2 | 30 | 10 | 17.248 |
-| same_well_masked | 3 | 30 | 10 | 16.660 |
-| unseen_well | 0 | 30 | 10 | 16.726 |
-| unseen_well | 1 | 30 | 10 | 17.176 |
-| unseen_well | 2 | 30 | 10 | 17.315 |
-| unseen_well | 3 | 30 | 10 | 17.524 |
-| INVALID_in_sample | -1 | 40 | 40 | 15.539 |
+| same_well_masked | 0 | 30 | 10 | 17.565 |
+| same_well_masked | 1 | 30 | 10 | 17.537 |
+| same_well_masked | 2 | 30 | 10 | 17.422 |
+| same_well_masked | 3 | 30 | 10 | 18.216 |
+| unseen_well | 0 | 30 | 10 | 17.974 |
+| unseen_well | 1 | 30 | 10 | 18.115 |
+| unseen_well | 2 | 30 | 10 | 17.664 |
+| unseen_well | 3 | 30 | 10 | 17.339 |
+| INVALID_in_sample | -1 | 40 | 40 | 15.834 |
 

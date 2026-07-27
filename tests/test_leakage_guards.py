@@ -120,9 +120,16 @@ def test_unaudited_column_is_rejected():
         assert_safe_features(["dmd", "mystery_feature"])
 
 
-def test_typewell_geology_is_not_an_unrestricted_feature():
-    with pytest.raises(_m().FeatureLeakage):
+def test_typewell_geology_is_rejected_as_train_only():
+    """Geology exists in train typewells and NOT in test typewells.
+
+    Full coverage of the corrected row lives in
+    ``tests/test_typewell_schema_manifest.py``; this asserts the guard itself.
+    """
+    with pytest.raises(_m().FeatureLeakage, match="TRAIN-ONLY"):
         assert_safe_features(["dmd", "Typewell Geology"])
+    with pytest.raises(_m().FeatureLeakage):
+        assert_safe_features(["dmd", "Geology"])
 
 
 def test_safe_features_pass():
@@ -168,6 +175,25 @@ def test_manifest_marks_tvt_as_target_and_unsafe():
     row = _m().manifest_frame().set_index("feature_name").loc["TVT"]
     assert row["decision"] == "TARGET"
     assert row["safe_for_inference"] == "no"
+
+
+def test_manifest_marks_typewell_geology_train_only_and_unsafe():
+    """Absent from the test typewell schema -> TRAIN_ANALYSIS_ONLY, never USE."""
+    row = _m().manifest_frame().set_index("feature_name").loc["Typewell Geology"]
+    assert row["decision"] == "TRAIN_ANALYSIS_ONLY"
+    assert row["train_availability"] == "yes"
+    assert row["test_availability"] == "no"
+    assert row["safe_for_inference"] == "false"
+    assert row["leakage_risk"] == "HIGH for final inference"
+
+
+def test_no_manifest_entry_is_train_only_and_inference_safe():
+    """The invariant the Kaggle schema audit caught being violated."""
+    assert _m().validate_manifest() == []
+    for spec in _m().MANIFEST:
+        if spec.train_only:
+            assert not spec.claims_inference_safe, spec.feature_name
+            assert spec.feature_name not in _m().safe_inference_features()
 
 
 def test_manifest_marks_the_seven_safe_raw_features_usable():

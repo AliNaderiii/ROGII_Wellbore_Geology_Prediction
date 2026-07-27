@@ -13,7 +13,7 @@
 > **Do not quote any figure below as a real result.** Real metrics require
 > `scripts/run_validation.py` on the mounted Kaggle competition data.
 
-Generated 2026-07-27T09:01:21.189025+00:00 · runtime 154.0s · peak RSS 232 MB
+Generated 2026-07-27T14:10:42.279075+00:00 · runtime 158.5s · peak RSS 226 MB
 
 Wells validated: **40** of 40 train wells (4-fold GroupKFold, seed 0). Points evaluated per model: **97,528**. Failures: **0**.
 
@@ -43,13 +43,13 @@ Models are fitted on fold-train wells and scored on the **real hidden suffix** o
 | model | n_wells | n_points | global_rmse | mean_well_rmse | median_well_rmse | p90_well_rmse | worst10_well_rmse | worst_well_rmse | worst_well_id | max_abs_error | mean_bias | predict_seconds |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | geom_projection | 40 | 97528 | 0.945 | 0.644 | 0.546 | 1.433 | 1.381 | 2.409 | tr00010 | 5.008 | 0.007 | 0.009 |
-| ridge_spatial | 40 | 97528 | 1.988 | 1.770 | 1.709 | 2.999 | 2.984 | 3.996 | tr0000c | 8.332 | 0.097 | 0.708 |
-| ridge | 40 | 97528 | 2.016 | 1.791 | 1.601 | 2.882 | 3.147 | 4.758 | tr00027 | 7.138 | 0.077 | 0.337 |
+| ridge_spatial | 40 | 97528 | 1.988 | 1.770 | 1.709 | 2.999 | 2.984 | 3.996 | tr0000c | 8.332 | 0.097 | 0.769 |
+| ridge | 40 | 97528 | 2.016 | 1.791 | 1.601 | 2.882 | 3.147 | 4.758 | tr00027 | 7.138 | 0.077 | 0.410 |
 | lightgbm | 40 | 97528 | 2.493 | 1.975 | 1.613 | 4.007 | 3.947 | 5.069 | tr00024 | 8.775 | -0.086 | 2.141 |
-| lightgbm_spatial | 40 | 97528 | 2.769 | 2.061 | 1.686 | 4.286 | 4.222 | 7.155 | tr00003 | 13.440 | 0.043 | 2.353 |
-| linear_extrap | 40 | 97528 | 3.866 | 2.402 | 1.205 | 6.033 | 6.433 | 11.314 | tr00003 | 19.664 | 0.156 | 0.006 |
-| ncc_alignment | 40 | 97528 | 4.225 | 2.875 | 1.562 | 7.418 | 7.090 | 9.629 | tr00003 | 17.567 | 0.216 | 0.003 |
-| gr_typewell_match | 40 | 97528 | 4.238 | 2.998 | 1.988 | 6.930 | 7.004 | 9.504 | tr00003 | 17.237 | 0.462 | 0.194 |
+| lightgbm_spatial | 40 | 97528 | 2.769 | 2.061 | 1.686 | 4.286 | 4.222 | 7.155 | tr00003 | 13.440 | 0.043 | 2.311 |
+| linear_extrap | 40 | 97528 | 3.866 | 2.402 | 1.205 | 6.033 | 6.433 | 11.314 | tr00003 | 19.664 | 0.156 | 0.007 |
+| ncc_alignment | 40 | 97528 | 4.225 | 2.875 | 1.562 | 7.418 | 7.090 | 9.629 | tr00003 | 17.567 | 0.216 | 0.004 |
+| gr_typewell_match | 40 | 97528 | 4.238 | 2.998 | 1.988 | 6.930 | 7.004 | 9.504 | tr00003 | 17.237 | 0.462 | 0.199 |
 | hold_last | 40 | 97528 | 4.538 | 3.468 | 2.500 | 7.345 | 7.166 | 9.192 | tr00003 | 16.587 | 0.626 | 0.001 |
 
 
@@ -60,14 +60,14 @@ The prediction boundary is simulated earlier, inside the visible prefix, so the 
 | model | n_wells | n_points | global_rmse | mean_well_rmse | median_well_rmse | p90_well_rmse | worst10_well_rmse | worst_well_rmse | worst_well_id | max_abs_error | mean_bias | predict_seconds |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | geom_projection | 40 | 94674 | 0.635 | 0.490 | 0.417 | 1.028 | 0.999 | 1.292 | tr00010 | 2.818 | 0.124 | 0.008 |
-| ridge | 40 | 94674 | 1.742 | 1.456 | 1.467 | 2.589 | 2.571 | 3.589 | tr00004 | 6.602 | 0.037 | 0.337 |
-| lightgbm_spatial | 40 | 94674 | 1.857 | 1.446 | 1.198 | 2.963 | 3.177 | 5.502 | tr00023 | 9.966 | 0.185 | 2.585 |
+| ridge | 40 | 94674 | 1.742 | 1.456 | 1.467 | 2.589 | 2.571 | 3.589 | tr00004 | 6.602 | 0.037 | 0.412 |
+| lightgbm_spatial | 40 | 94674 | 1.857 | 1.446 | 1.198 | 2.963 | 3.177 | 5.502 | tr00023 | 9.966 | 0.185 | 2.623 |
 | lightgbm | 40 | 94674 | 1.869 | 1.441 | 1.035 | 3.250 | 3.223 | 5.331 | tr00014 | 9.780 | 0.178 | 2.322 |
-| ridge_spatial | 40 | 94674 | 2.014 | 1.637 | 1.356 | 3.372 | 3.166 | 4.739 | tr0000c | 8.874 | 0.345 | 0.682 |
-| linear_extrap | 40 | 94674 | 2.577 | 1.816 | 1.070 | 4.795 | 4.707 | 8.900 | tr00014 | 15.873 | 0.056 | 0.005 |
-| ncc_alignment | 40 | 94674 | 3.304 | 2.368 | 1.454 | 5.526 | 5.717 | 10.171 | tr00014 | 18.290 | 0.540 | 0.003 |
+| ridge_spatial | 40 | 94674 | 2.014 | 1.637 | 1.356 | 3.372 | 3.166 | 4.739 | tr0000c | 8.874 | 0.345 | 0.792 |
+| linear_extrap | 40 | 94674 | 2.577 | 1.816 | 1.070 | 4.795 | 4.707 | 8.900 | tr00014 | 15.873 | 0.056 | 0.006 |
+| ncc_alignment | 40 | 94674 | 3.304 | 2.368 | 1.454 | 5.526 | 5.717 | 10.171 | tr00014 | 18.290 | 0.540 | 0.004 |
 | hold_last | 40 | 94674 | 3.599 | 2.797 | 2.032 | 5.586 | 5.797 | 10.171 | tr00014 | 18.290 | 0.509 | 0.001 |
-| gr_typewell_match | 40 | 94674 | 3.675 | 2.629 | 1.960 | 5.817 | 6.060 | 10.399 | tr00003 | 18.290 | 0.300 | 0.166 |
+| gr_typewell_match | 40 | 94674 | 3.675 | 2.629 | 1.960 | 5.817 | 6.060 | 10.399 | tr00003 | 18.290 | 0.300 | 0.176 |
 
 
 ### 3b. In-sample diagnostic — INVALID, shown for contrast only
@@ -76,12 +76,12 @@ Fitted and scored on the **same** wells. This is not a validation result; it is 
 
 | model | n_wells | n_points | global_rmse | mean_well_rmse | median_well_rmse | p90_well_rmse | worst10_well_rmse | worst_well_rmse | worst_well_id | max_abs_error | mean_bias | predict_seconds |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| lightgbm | 40 | 97528 | 0.084 | 0.064 | 0.049 | 0.118 | 0.126 | 0.217 | tr00003 | 2.085 | -0.000 | 2.402 |
+| lightgbm | 40 | 97528 | 0.084 | 0.064 | 0.049 | 0.118 | 0.126 | 0.217 | tr00003 | 2.085 | -0.000 | 2.362 |
 | geom_projection | 40 | 97528 | 0.945 | 0.644 | 0.546 | 1.433 | 1.381 | 2.409 | tr00010 | 5.008 | 0.007 | 0.009 |
-| ridge | 40 | 97528 | 1.193 | 1.079 | 1.087 | 1.656 | 1.644 | 1.873 | tr00024 | 4.698 | -0.002 | 0.324 |
+| ridge | 40 | 97528 | 1.193 | 1.079 | 1.087 | 1.656 | 1.644 | 1.873 | tr00024 | 4.698 | -0.002 | 0.407 |
 | linear_extrap | 40 | 97528 | 3.832 | 2.413 | 1.314 | 6.076 | 6.409 | 11.069 | tr00003 | 19.322 | 0.158 | 0.006 |
-| gr_typewell_match | 40 | 97528 | 4.169 | 2.903 | 1.665 | 7.107 | 6.868 | 9.504 | tr00003 | 17.237 | 0.170 | 0.194 |
-| ncc_alignment | 40 | 97528 | 4.210 | 2.861 | 1.542 | 7.418 | 7.056 | 9.629 | tr00003 | 17.567 | 0.209 | 0.003 |
+| gr_typewell_match | 40 | 97528 | 4.169 | 2.903 | 1.665 | 7.107 | 6.868 | 9.504 | tr00003 | 17.237 | 0.170 | 0.199 |
+| ncc_alignment | 40 | 97528 | 4.210 | 2.861 | 1.542 | 7.418 | 7.056 | 9.629 | tr00003 | 17.567 | 0.209 | 0.004 |
 | hold_last | 40 | 97528 | 4.538 | 3.468 | 2.500 | 7.345 | 7.166 | 9.192 | tr00003 | 16.587 | 0.626 | 0.001 |
 
 
@@ -338,8 +338,8 @@ Ten worst wells for `geom_projection`:
 
 ## 9. Runtime and memory
 
-- Total wall clock: **154.0s**
-- Peak resident memory: **232 MB**
+- Total wall clock: **158.5s**
+- Peak resident memory: **226 MB**
 - Platform: Linux-6.1.158+-x86_64-with-glibc2.36, 2 CPU(s), Python 3.11.2
 - Wells skipped as unusable: 0
 - Total failures (task + fit + predict): **0**
@@ -350,30 +350,30 @@ Per-fold timing:
 
 | protocol | fold | n_train_wells | n_valid_wells | seconds |
 |---|---|---|---|---|
-| same_well_masked | 0 | 30 | 10 | 17.521 |
-| same_well_masked | 1 | 30 | 10 | 17.529 |
-| same_well_masked | 2 | 30 | 10 | 17.248 |
-| same_well_masked | 3 | 30 | 10 | 16.660 |
-| unseen_well | 0 | 30 | 10 | 16.726 |
-| unseen_well | 1 | 30 | 10 | 17.176 |
-| unseen_well | 2 | 30 | 10 | 17.315 |
-| unseen_well | 3 | 30 | 10 | 17.524 |
-| INVALID_in_sample | -1 | 40 | 40 | 15.539 |
+| same_well_masked | 0 | 30 | 10 | 17.565 |
+| same_well_masked | 1 | 30 | 10 | 17.537 |
+| same_well_masked | 2 | 30 | 10 | 17.422 |
+| same_well_masked | 3 | 30 | 10 | 18.216 |
+| unseen_well | 0 | 30 | 10 | 17.974 |
+| unseen_well | 1 | 30 | 10 | 18.115 |
+| unseen_well | 2 | 30 | 10 | 17.664 |
+| unseen_well | 3 | 30 | 10 | 17.339 |
+| INVALID_in_sample | -1 | 40 | 40 | 15.834 |
 
 
 Inference cost per model:
 
 | model | predict_seconds_total | predict_seconds_per_well |
 |---|---|---|
-| lightgbm | 6.8643 | 0.0572 |
-| lightgbm_spatial | 4.9376 | 0.0617 |
-| ridge_spatial | 1.3901 | 0.0174 |
-| ridge | 0.9978 | 0.0083 |
-| gr_typewell_match | 0.5530 | 0.0046 |
-| geom_projection | 0.0252 | 0.0002 |
-| linear_extrap | 0.0176 | 0.0001 |
-| ncc_alignment | 0.0100 | 0.0001 |
-| hold_last | 0.0037 | 0.0000 |
+| lightgbm | 6.8247 | 0.0569 |
+| lightgbm_spatial | 4.9335 | 0.0617 |
+| ridge_spatial | 1.5607 | 0.0195 |
+| ridge | 1.2290 | 0.0102 |
+| gr_typewell_match | 0.5743 | 0.0048 |
+| geom_projection | 0.0271 | 0.0002 |
+| linear_extrap | 0.0189 | 0.0002 |
+| ncc_alignment | 0.0117 | 0.0001 |
+| hold_last | 0.0042 | 0.0000 |
 
 
 ## 10. Leakage controls in force

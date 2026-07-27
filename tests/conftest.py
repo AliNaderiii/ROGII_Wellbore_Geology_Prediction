@@ -54,13 +54,31 @@ def _hw_frame(
     return df
 
 
-def _tw_frame(seed: int = 0) -> pd.DataFrame:
+def _tw_frame(seed: int = 0, *, with_geology: bool = True) -> pd.DataFrame:
+    """Typewell reference log.
+
+    Mirrors the audited Kaggle schemas exactly:
+
+        train: ['TVT', 'GR', 'Geology']
+        test:  ['TVT', 'GR']          <- no Geology column
+
+    The asymmetry is the whole point of the fixture. A test typewell carrying
+    Geology would let a train-only column pass validation unnoticed, which is
+    precisely the defect the manifest correction exists to prevent.
+    """
     tvt = np.linspace(0, 60, 200)
-    return pd.DataFrame({
+    data = {
         "TVT": tvt,
         "GR": 50 + 30 * np.sin(tvt / 6),
-        "Geology": [FORMATIONS[min(int(t // 10), 5)] for t in tvt],
-    })
+    }
+    if with_geology:
+        data["Geology"] = [FORMATIONS[min(int(t // 10), 5)] for t in tvt]
+    return pd.DataFrame(data)
+
+
+def _test_tw_frame(seed: int = 0) -> pd.DataFrame:
+    """Test-split typewell: ['TVT', 'GR'] only."""
+    return _tw_frame(seed, with_geology=False)
 
 
 def write_well(directory: Path, well_id: str, hw: pd.DataFrame, tw: pd.DataFrame | None) -> None:
@@ -98,12 +116,14 @@ def mount(tmp_path: Path, monkeypatch) -> Path:
             _tw_frame(),
         )
 
-    # test wells: no target, no marker columns (mirrors the reported test schema)
+    # Test wells mirror the audited test schema exactly: no TVT target, no
+    # formation-marker columns, and a typewell of ['TVT', 'GR'] with NO
+    # Geology column.
     rows = []
     for i in (1, 2):
         wid = f"TSW00{i}"
         hw = _hw_frame(n=200, prefix=50, with_target=False, with_markers=False, seed=10 + i)
-        write_well(test, wid, hw, _tw_frame())
+        write_well(test, wid, hw, _test_tw_frame())
         rows += [{"id": f"{wid}_{r}", "tvt": 0.0} for r in range(50, 200)]
     pd.DataFrame(rows).to_csv(comp / "sample_submission.csv", index=False)
 
