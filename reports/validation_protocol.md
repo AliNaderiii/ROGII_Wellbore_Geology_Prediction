@@ -188,9 +188,39 @@ enforcement cannot drift apart.
 |---|---|
 | `USE` | May enter a model matrix |
 | `USE_PREFIX_ONLY` | `TVT_input`: readable strictly before the boundary, for the anchor and prefix slopes. NaN past the boundary by construction |
-| `USE_ALIGNMENT_ONLY` | `Typewell Geology`: interpretation and stacking-order checks only, not an unrestricted categorical |
+| `TRAIN_ANALYSIS_ONLY` | `Typewell Geology`: **train-only column** — present in train typewells (`['TVT', 'GR', 'Geology']`), absent from test typewells (`['TVT', 'GR']`). Admissible for train-side EDA, geological interpretation and error analysis, and for nothing else |
 | `REJECT` | The six train-only formation markers |
 | `TARGET` | `TVT` |
+
+### Typewell Geology is train-only
+
+The schema audit established that `Geology` ships only in the **train**
+typewell files. An earlier revision of this manifest recorded it as available
+in both splits (`USE_ALIGNMENT_ONLY`), which was wrong and dangerous: a
+stacking-order or formation-plausibility check built on it would run happily
+during validation and then have nothing to read at inference — silent
+train/serve skew, reported as skill.
+
+The column is therefore `TRAIN_ANALYSIS_ONLY` with
+`safe_for_inference = false` and `leakage_risk = HIGH for final inference`. It
+must never enter the test feature matrix, alignment features, post-processing,
+calibration, or an ensemble.
+
+Enforcement is layered, because a document alone cannot catch this class of
+error:
+
+1. `validate_manifest` rejects any entry that is inference-cleared while absent
+   from test, and any derived feature whose provenance reaches a train-only
+   parent. It runs at import time.
+2. `assert_manifest_matches_data` compares the manifest against the columns
+   actually on disk — the only check that can catch a row which is
+   *self-consistent but untrue* — and raises `SchemaVerificationError`.
+3. `assert_inference_provenance` walks every cleared feature back to its raw
+   roots and requires them to lie inside
+   `MD, X, Y, Z, GR, TVT_input, Typewell TVT, Typewell GR`.
+
+The runner calls all three **before any model is fitted**, and
+`scripts/verify_feature_safety.py` runs them standalone.
 
 `assert_safe_features` rejects anything not marked `USE`, **including columns
 absent from the manifest**. An unaudited feature therefore cannot reach a model

@@ -13,9 +13,24 @@ from the completed feature audit on the real Kaggle data (773 train wells,
 3 visible public test wells); they are stated as *audited findings*, and
 ``verify_manifest_against_data`` re-checks them against a live mount so the
 document can never silently drift from reality.
+
+Schema audit (authoritative, re-verified against the real Kaggle mount)
+-----------------------------------------------------------------------
+::
+
+    TRAIN  <well>__typewell.csv  columns: ['TVT', 'GR', 'Geology']
+    TEST   <well>__typewell.csv  columns: ['TVT', 'GR']
+
+``Geology`` is therefore **train-only**. It is admissible for train-side EDA,
+geological interpretation and error analysis, and for nothing else: it must
+never reach the test feature matrix, the alignment features, post-processing,
+calibration or an ensemble. The manifest encodes that as
+``decision=TRAIN_ANALYSIS_ONLY`` and ``validate_manifest`` refuses to render or
+enforce a manifest that says otherwise.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -35,6 +50,31 @@ TRAIN_ONLY_MARKERS: tuple[str, ...] = (
     "EGFDU",
 )
 
+#: Observed typewell schemas, from the Kaggle schema audit. These are the
+#: reference values the verification path compares a live mount against.
+AUDITED_TRAIN_TYPEWELL_COLUMNS: tuple[str, ...] = ("TVT", "GR", "Geology")
+AUDITED_TEST_TYPEWELL_COLUMNS: tuple[str, ...] = ("TVT", "GR")
+
+#: Observed horizontal-well schemas, from the same audit.
+AUDITED_TRAIN_HW_COLUMNS: tuple[str, ...] = (
+    "MD", "X", "Y", "Z", "GR", "TVT_input", "TVT", *TRAIN_ONLY_MARKERS,
+)
+AUDITED_TEST_HW_COLUMNS: tuple[str, ...] = ("MD", "X", "Y", "Z", "GR", "TVT_input")
+
+#: The only raw columns that may reach a final inference feature matrix, either
+#: directly or as the provenance of a derived feature. Anything else is either
+#: train-only (markers, Typewell Geology), the target (TVT), or unaudited.
+SAFE_RAW_INFERENCE_SOURCES: tuple[str, ...] = (
+    "MD",
+    "X",
+    "Y",
+    "Z",
+    "GR",
+    "TVT_input",          # visible prefix only
+    "Typewell TVT",
+    "Typewell GR",
+)
+
 #: Geological stacking order (shallowest -> deepest), used for ordering checks
 #: only. Distinct from the alphabetical audit listing above.
 MARKER_STACKING_ORDER: tuple[str, ...] = (
@@ -46,14 +86,58 @@ MARKER_STACKING_ORDER: tuple[str, ...] = (
     "BUDA",
 )
 
-DECISIONS = {
-    "USE",
-    "USE_PREFIX_ONLY",
+#: Decisions whose holders may enter a model input matrix.
+INFERENCE_DECISIONS = {"USE"}
+
+#: Decisions that forbid a column from ever reaching an inference matrix.
+#: ``TRAIN_ANALYSIS_ONLY`` is for train-only columns (Typewell Geology) that
+#: remain useful for EDA and error analysis but are absent from test.
+NON_INFERENCE_DECISIONS = {
     "TARGET",
     "REJECT",
     "DEFER",
-    "USE_ALIGNMENT_ONLY",
+    "TRAIN_ANALYSIS_ONLY",
+    "USE_PREFIX_ONLY",
 }
+
+DECISIONS = INFERENCE_DECISIONS | NON_INFERENCE_DECISIONS
+
+
+class ManifestInconsistency(RuntimeError):
+    """Raised when the manifest contradicts itself or the audited schemas.
+
+    Distinct from ``FeatureLeakage``: this fires on the *document*, before any
+    data is touched, so a mis-stated availability claim is caught at import
+    time rather than surviving into a run.
+    """
+
+
+#: Leading tokens that mean "absent" / "not permitted" in a manifest field.
+_NEGATIVE_PREFIXES = ("no", "false", "never", "none")
+
+
+def _is_no(text: str) -> bool:
+    """True when an availability/safety field states absence or denial.
+
+    These fields are prose, not booleans — "yes (all 773 wells)", "NO — column
+    absent from the test horizontal wells", "false, but train-only geological
+    metadata" — so the verdict is read from the leading token. ``"none"`` is
+    included because a rejected feature may record ``used_by="none"``-style
+    phrasing; ``"nope"``-like words are not special-cased on purpose, the
+    vocabulary is deliberately small and checked by tests.
+    """
+    head = str(text).strip().lower()
+    return any(
+        head == p or head.startswith(p + " ") or head.startswith(p + ",")
+        or head.startswith(p + ".") or head.startswith(p + ";")
+        or head.startswith(p + "(") or head.startswith(p + " —")
+        or head.startswith(p + "-")
+        for p in _NEGATIVE_PREFIXES
+    )
+
+
+def _is_yes(text: str) -> bool:
+    return not _is_no(text)
 
 
 @dataclass(frozen=True)
@@ -72,10 +156,96 @@ class FeatureSpec:
     notes: str
     tier: str = "raw"
     used_by: str = ""
+    #: Canonical names of the manifest entries this feature is computed from.
+    #: Empty for raw columns, which are read straight off disk.
+    parents: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.decision not in DECISIONS:
             raise ValueError(f"{self.feature_name}: unknown decision {self.decision!r}")
+        # Self-consistency, enforced per row so an inconsistent entry cannot be
+        # constructed at all — not merely reported later.
+        if self.decision in INFERENCE_DECISIONS and _is_no(self.test_availability):
+            raise ManifestInconsistency(
+                f"{self.feature_name}: decision={self.decision} requires the "
+                f"column to exist in test, but test_availability="
+                f"{self.test_availability!r}. A train-only feature must never "
+                "be marked usable at inference."
+            )
+        if self.decision in INFERENCE_DECISIONS and _is_no(self.safe_for_inference):
+            raise ManifestInconsistency(
+                f"{self.feature_name}: decision={self.decision} contradicts "
+                f"safe_for_inference={self.safe_for_inference!r}."
+            )
+        if self.decision == "TRAIN_ANALYSIS_ONLY":
+            if _is_yes(self.test_availability):
+                raise ManifestInconsistency(
+                    f"{self.feature_name}: TRAIN_ANALYSIS_ONLY is reserved for "
+                    "train-only columns, but test_availability="
+                    f"{self.test_availability!r}."
+                )
+            if _is_yes(self.safe_for_inference):
+                raise ManifestInconsistency(
+                    f"{self.feature_name}: TRAIN_ANALYSIS_ONLY must have "
+                    f"safe_for_inference=no, got {self.safe_for_inference!r}."
+                )
+
+    # -- convenience predicates used by the verification paths -------------
+    @property
+    def in_train(self) -> bool:
+        return _is_yes(self.train_availability)
+
+    @property
+    def in_test(self) -> bool:
+        return _is_yes(self.test_availability)
+
+    @property
+    def train_only(self) -> bool:
+        return self.in_train and not self.in_test
+
+    @property
+    def claims_inference_safe(self) -> bool:
+        return self.decision in INFERENCE_DECISIONS
+
+
+# --------------------------------------------------------------------------
+# Name canonicalisation
+# --------------------------------------------------------------------------
+# Defined before the manifest entries because provenance parsing (`_derived`)
+# canonicalises parent names at construction time.
+
+_ALIASES = {
+    "tvt": "TVT",
+    "tvt_target": "TVT",
+    "target": "TVT",
+    "tvt_input": "TVT_input",
+    "typewell_tvt": "Typewell TVT",
+    "typewell_gr": "Typewell GR",
+    "typewell_geology": "Typewell Geology",
+    "geology": "Typewell Geology",
+    # A bare typewell "Geology" header, and the shapes it arrives in after a
+    # `Typewell `-prefixed lookup. All resolve to the train-only entry so the
+    # column cannot slip in under a different spelling.
+    "formation": "Typewell Geology",
+    "facies": "Typewell Geology",
+    "tw_geology": "Typewell Geology",
+    "typewell_formation": "Typewell Geology",
+    "typewell_facies": "Typewell Geology",
+}
+
+
+def canonical(column: str) -> str:
+    """Resolve a column spelling to its canonical manifest feature name."""
+    key = str(column).strip().lower().replace(" ", "_").replace("-", "_")
+    if key in _ALIASES:
+        return _ALIASES[key]
+    upper = key.upper()
+    if upper in TRAIN_ONLY_MARKERS:
+        return upper
+    for spec in globals().get("MANIFEST", ()):
+        if spec.feature_name.lower().replace(" ", "_") == key:
+            return spec.feature_name
+    return str(column)
 
 
 # --------------------------------------------------------------------------
@@ -261,27 +431,25 @@ RAW_FEATURES: tuple[FeatureSpec, ...] = (
         feature_name="Typewell Geology",
         source=_TW,
         train_availability="yes",
-        test_availability="yes",
-        available_after_prediction_start="yes",
-        target_derived="no",
-        safe_for_inference="yes, but deliberately restricted for now",
-        decision="USE_ALIGNMENT_ONLY",
-        leakage_risk=(
-            "low directly; medium indirectly — formation labels are defined by "
-            "the same stratigraphic surfaces that define TVT, so an "
-            "unrestricted categorical encoding can smuggle in structural "
-            "information that is not available with the same fidelity at "
-            "inference"
-        ),
+        test_availability="no",
+        available_after_prediction_start="no",
+        target_derived="false, but train-only geological metadata",
+        safe_for_inference="false",
+        decision="TRAIN_ANALYSIS_ONLY",
+        leakage_risk="HIGH for final inference",
         notes=(
-            "Formation label of the typewell as a function of Typewell TVT. "
-            "Used to interpret and sanity-check alignment (does the matched TVT "
-            "land in a plausible formation?) and to enforce the "
-            "ANCC->ASTNU->ASTNL->EGFDU->EGFDL->BUDA stacking order in "
-            "post-processing. NOT one-hot encoded into the baseline feature "
-            "matrix; promote only after a fold-safe A/B shows a gain."
+            "The Geology column is present in train Typewell files "
+            "(['TVT', 'GR', 'Geology']) but absent from test Typewell files "
+            "(['TVT', 'GR']). It may be used only for train-side EDA, "
+            "geological interpretation, and error analysis. It must never "
+            "enter the final Test feature matrix, alignment features, "
+            "post-processing, calibration, or ensemble. Corrected from the "
+            "earlier USE_ALIGNMENT_ONLY entry, which wrongly claimed test "
+            "availability and would have produced silent train/serve skew: "
+            "any stacking-order or formation-plausibility check built on it "
+            "would run in validation and be unavailable at inference."
         ),
-        used_by="interpretation, post-processing checks",
+        used_by="train-side EDA and error analysis only (never inference)",
     ),
 )
 
@@ -323,6 +491,24 @@ MARKER_FEATURES: tuple[FeatureSpec, ...] = tuple(
 # Tier 2 — derived features (built only from tier-1 USE / USE_PREFIX_ONLY)
 # --------------------------------------------------------------------------
 
+def _parse_parents(parents: str) -> tuple[str, ...]:
+    """Split a provenance string into canonical parent feature names.
+
+    ``"Typewell GR, Typewell TVT, TVT_input"`` -> those three names;
+    parenthetical qualifiers ("(prefix only)", "(prefix statistics)") are
+    descriptive and stripped. Making provenance machine-readable is what lets
+    ``validate_manifest`` prove no derived feature descends from a train-only
+    column such as Typewell Geology.
+    """
+    cleaned = re.sub(r"\([^)]*\)", " ", str(parents))
+    out: list[str] = []
+    for chunk in cleaned.split(","):
+        name = chunk.strip()
+        if name:
+            out.append(canonical(name))
+    return tuple(out)
+
+
 def _derived(
     name: str,
     parents: str,
@@ -340,12 +526,13 @@ def _derived(
         test_availability="yes (computed)",
         available_after_prediction_start=after_ps,
         target_derived="no",
-        safe_for_inference="yes" if decision.startswith("USE") else "no",
+        safe_for_inference="yes" if decision in INFERENCE_DECISIONS else "no",
         decision=decision,
         leakage_risk=risk,
         notes=notes,
         tier="derived",
         used_by=used_by,
+        parents=_parse_parents(parents),
     )
 
 
@@ -577,6 +764,7 @@ def _spatial(name: str, notes: str) -> FeatureSpec:
         notes=notes,
         tier="spatial",
         used_by="ridge, lightgbm (spatial variant)",
+        parents=("X", "Y"),
     )
 
 
@@ -634,10 +822,105 @@ MANIFEST_COLUMNS = [
 
 
 # --------------------------------------------------------------------------
+# Manifest self-validation
+# --------------------------------------------------------------------------
+
+def validate_manifest(manifest: "tuple[FeatureSpec, ...] | None" = None) -> list[str]:
+    """Check the manifest against its own invariants. Returns problem strings.
+
+    Invariants:
+
+    1. No feature is marked usable at inference while being absent from test.
+       This is the exact defect the Kaggle schema audit found in the
+       ``Typewell Geology`` row.
+    2. A train-only feature (``in train``, not ``in test``) carries a
+       non-inference decision and ``safe_for_inference`` = no.
+    3. No derived or spatial feature descends from a parent that is itself
+       barred from inference — a safe-looking child cannot launder a
+       train-only parent.
+    4. Every parent named in a provenance string exists in the manifest.
+    5. ``safe_for_inference`` never contradicts ``decision``.
+
+    ``assert_manifest_valid`` raises on a non-empty result; both
+    ``manifest_frame`` and ``assert_safe_features`` call it, so the document
+    cannot be rendered or enforced while inconsistent.
+    """
+    entries = MANIFEST if manifest is None else tuple(manifest)
+    by_name = {spec.feature_name: spec for spec in entries}
+    problems: list[str] = []
+
+    for spec in entries:
+        # 1 + 5 — decision vs. availability / safety
+        if spec.claims_inference_safe and not spec.in_test:
+            problems.append(
+                f"{spec.feature_name}: decision={spec.decision} but "
+                f"test_availability={spec.test_availability!r} — a train-only "
+                "feature is marked available in test."
+            )
+        if spec.claims_inference_safe and _is_no(spec.safe_for_inference):
+            problems.append(
+                f"{spec.feature_name}: decision={spec.decision} contradicts "
+                f"safe_for_inference={spec.safe_for_inference!r}."
+            )
+        # 2 — train-only columns must be barred and labelled unsafe
+        if spec.train_only:
+            if spec.decision in INFERENCE_DECISIONS:
+                problems.append(
+                    f"{spec.feature_name}: train-only (train yes / test no) but "
+                    f"decision={spec.decision}."
+                )
+            if _is_yes(spec.safe_for_inference):
+                problems.append(
+                    f"{spec.feature_name}: train-only but safe_for_inference="
+                    f"{spec.safe_for_inference!r}."
+                )
+        # 3 + 4 — provenance
+        for parent in spec.parents:
+            pspec = by_name.get(parent)
+            if pspec is None:
+                problems.append(
+                    f"{spec.feature_name}: provenance names {parent!r}, which "
+                    "is not a manifest entry."
+                )
+                continue
+            if spec.claims_inference_safe and not pspec.in_test:
+                problems.append(
+                    f"{spec.feature_name}: decision={spec.decision} but its "
+                    f"parent {parent!r} is absent from test "
+                    f"(test_availability={pspec.test_availability!r}). A "
+                    "derived feature cannot be safer than its inputs."
+                )
+            if spec.claims_inference_safe and pspec.decision in {
+                "TARGET", "REJECT", "TRAIN_ANALYSIS_ONLY"
+            }:
+                problems.append(
+                    f"{spec.feature_name}: decision={spec.decision} but its "
+                    f"parent {parent!r} carries decision={pspec.decision}."
+                )
+    return problems
+
+
+def assert_manifest_valid(manifest: "tuple[FeatureSpec, ...] | None" = None) -> None:
+    """Raise ``ManifestInconsistency`` if the manifest violates its invariants."""
+    problems = validate_manifest(manifest)
+    if problems:
+        raise ManifestInconsistency(
+            "Feature manifest is internally inconsistent; refusing to "
+            "proceed.\n  - " + "\n  - ".join(problems)
+        )
+
+
+# Fail at import time rather than mid-run.
+assert_manifest_valid()
+
+
+# --------------------------------------------------------------------------
 # Rendering + enforcement
 # --------------------------------------------------------------------------
 
 def manifest_frame() -> pd.DataFrame:
+    """Render the manifest, refusing to emit an inconsistent document."""
+    assert_manifest_valid()
     return pd.DataFrame([asdict(f) for f in MANIFEST])[MANIFEST_COLUMNS]
 
 
@@ -654,7 +937,7 @@ def _names(decisions: set[str]) -> list[str]:
 
 def safe_inference_features() -> list[str]:
     """Feature names that may appear in a model input matrix."""
-    return _names({"USE"})
+    return _names(set(INFERENCE_DECISIONS))
 
 
 def prefix_only_features() -> list[str]:
@@ -663,7 +946,22 @@ def prefix_only_features() -> list[str]:
 
 def rejected_features() -> list[str]:
     """Names that must never appear in a model input matrix."""
-    return _names({"REJECT", "TARGET", "USE_ALIGNMENT_ONLY"})
+    return _names(set(NON_INFERENCE_DECISIONS))
+
+
+def train_only_features() -> list[str]:
+    """Columns present in train and absent from test.
+
+    These are admissible for train-side EDA and error analysis only. The list
+    is derived from the availability fields, not hardcoded, so it tracks the
+    manifest automatically.
+    """
+    return [f.feature_name for f in MANIFEST if f.train_only]
+
+
+def train_analysis_only_features() -> list[str]:
+    """Train-only columns explicitly retained for analysis (not inference)."""
+    return _names({"TRAIN_ANALYSIS_ONLY"})
 
 
 def target_features() -> list[str]:
@@ -674,50 +972,40 @@ class FeatureLeakage(RuntimeError):
     """Raised when a rejected or target-derived column reaches a model."""
 
 
-_ALIASES = {
-    "tvt": "TVT",
-    "tvt_target": "TVT",
-    "target": "TVT",
-    "tvt_input": "TVT_input",
-    "typewell_tvt": "Typewell TVT",
-    "typewell_gr": "Typewell GR",
-    "typewell_geology": "Typewell Geology",
-    "geology": "Typewell Geology",
-}
-
-
-def canonical(column: str) -> str:
-    key = str(column).strip().lower().replace(" ", "_").replace("-", "_")
-    if key in _ALIASES:
-        return _ALIASES[key]
-    upper = key.upper()
-    if upper in TRAIN_ONLY_MARKERS:
-        return upper
-    for spec in MANIFEST:
-        if spec.feature_name.lower().replace(" ", "_") == key:
-            return spec.feature_name
-    return str(column)
-
-
 def assert_safe_features(columns, *, context: str = "model input") -> None:
     """Raise ``FeatureLeakage`` if any column is not cleared for inference.
 
     Unknown columns are rejected too: the manifest is a whitelist, so a feature
-    nobody has audited cannot reach a model by accident.
+    nobody has audited cannot reach a model by accident. The manifest itself is
+    validated first, so enforcement can never be carried out against an
+    inconsistent document (e.g. one that marks a train-only column as usable).
     """
+    assert_manifest_valid()
     allowed = set(safe_inference_features())
     banned = {c.lower(): c for c in rejected_features()}
+    train_only = {c.lower() for c in train_only_features()}
     unknown: list[str] = []
     leaks: list[str] = []
+    train_only_leaks: list[str] = []
     for col in columns:
         name = canonical(col)
         if name in allowed:
             continue
-        if name.lower() in banned:
+        if name.lower() in train_only:
+            train_only_leaks.append(
+                f"{col!r} -> {name} (decision={_decision_of(name)}, "
+                "train-only: absent from test)"
+            )
+        elif name.lower() in banned:
             leaks.append(f"{col!r} -> {name} (decision={_decision_of(name)})")
         else:
             unknown.append(str(col))
     problems = []
+    if train_only_leaks:
+        problems.append(
+            "TRAIN-ONLY columns (absent from the test schema, so they cannot "
+            "exist at inference): " + ", ".join(sorted(train_only_leaks))
+        )
     if leaks:
         problems.append("rejected/target columns: " + ", ".join(sorted(leaks)))
     if unknown:
@@ -739,35 +1027,81 @@ def _decision_of(name: str) -> str:
 # Re-verification against a live mount
 # --------------------------------------------------------------------------
 
+def canonical_typewell(column: str) -> str:
+    """Resolve a *typewell* column header to its manifest feature name.
+
+    Typewell entries are namespaced (``Typewell TVT``, ``Typewell GR``,
+    ``Typewell Geology``) because the same headers appear in the horizontal
+    files with a different meaning: a typewell's ``TVT`` is its own
+    stratigraphic axis, not the prediction target.
+
+    Naively prefixing ``canonical(c)`` was a real defect: ``canonical("Geology")``
+    already returns ``"Typewell Geology"``, so the prefix produced
+    ``"Typewell Typewell Geology"`` and the column was scored as absent from
+    *both* splits. That masked the true train/test asymmetry behind a
+    both-sides-missing mismatch.
+    """
+    name = canonical(column)
+    if name.startswith("Typewell "):
+        return name
+    return f"Typewell {name}"
+
+
+def observed_schema(
+    train_columns,
+    test_columns,
+    *,
+    train_tw_columns=None,
+    test_tw_columns=None,
+    tw_columns=None,
+) -> tuple[set[str], set[str]]:
+    """Canonical feature-name sets observed in the train and test schemas."""
+    train = {canonical(c) for c in train_columns}
+    test = {canonical(c) for c in test_columns}
+    # Typewell schemas are observed independently per split: reusing the train
+    # schema for both sides is exactly how a train-only Geology column came to
+    # be recorded as present in test.
+    if train_tw_columns is None and test_tw_columns is None:
+        train_tw_columns = test_tw_columns = tw_columns
+    if train_tw_columns is not None:
+        train |= {canonical_typewell(c) for c in train_tw_columns}
+    if test_tw_columns is not None:
+        test |= {canonical_typewell(c) for c in test_tw_columns}
+    return train, test
+
+
 def verify_manifest_against_data(
     train_columns, test_columns, *, tw_columns=None,
     train_tw_columns=None, test_tw_columns=None
 ) -> pd.DataFrame:
     """Re-check the manifest's availability claims against observed columns.
 
-    Returns one row per raw manifest entry with ``claim``, ``observed`` and
-    ``agrees``. Any ``agrees == False`` means the audit findings encoded here no
-    longer describe the data and modelling must stop.
+    Returns one row per raw manifest entry with ``claim``, ``observed``,
+    ``agrees`` and — critically — ``train_only_but_marked_available``, which is
+    the specific failure the Kaggle schema audit caught: a column observed only
+    in train while the manifest advertises it as usable at inference.
+
+    Any ``agrees == False``, or any ``train_only_but_marked_available == True``,
+    means the encoded audit findings no longer describe the data and modelling
+    must stop.
     """
-    train = {canonical(c) for c in train_columns}
-    test = {canonical(c) for c in test_columns}
-    # Typewell schemas are independently observed: using the train schema for
-    # both sides was the source of a false Typewell Geology disagreement.
-    if train_tw_columns is None and test_tw_columns is None:
-        train_tw_columns = test_tw_columns = tw_columns
-    if train_tw_columns is not None:
-        train |= {f"Typewell {canonical(c)}" for c in train_tw_columns}
-    if test_tw_columns is not None:
-        test |= {f"Typewell {canonical(c)}" for c in test_tw_columns}
+    train, test = observed_schema(
+        train_columns,
+        test_columns,
+        train_tw_columns=train_tw_columns,
+        test_tw_columns=test_tw_columns,
+        tw_columns=tw_columns,
+    )
 
     rows = []
     for spec in MANIFEST:
         if spec.tier != "raw":
             continue
-        claim_train = not spec.train_availability.lower().startswith("no")
-        claim_test = not spec.test_availability.lower().startswith("no")
+        claim_train = spec.in_train
+        claim_test = spec.in_test
         obs_train = spec.feature_name in train
         obs_test = spec.feature_name in test
+        observed_train_only = bool(obs_train and not obs_test)
         rows.append(
             {
                 "feature_name": spec.feature_name,
@@ -777,6 +1111,161 @@ def verify_manifest_against_data(
                 "observed_in_test": obs_test,
                 "agrees": bool(claim_train == obs_train and claim_test == obs_test),
                 "decision": spec.decision,
+                "observed_train_only": observed_train_only,
+                # The headline safety check: a column that physically exists
+                # only in train must not be cleared for the inference matrix.
+                "train_only_but_marked_available": bool(
+                    observed_train_only
+                    and (spec.claims_inference_safe or claim_test)
+                ),
+                "safe_for_inference": spec.safe_for_inference,
             }
         )
     return pd.DataFrame(rows)
+
+
+class SchemaVerificationError(RuntimeError):
+    """Raised when observed schemas contradict the manifest's claims."""
+
+
+def assert_manifest_matches_data(
+    train_columns, test_columns, *, tw_columns=None,
+    train_tw_columns=None, test_tw_columns=None,
+) -> pd.DataFrame:
+    """Verify the manifest against observed schemas, raising on any mismatch.
+
+    This is the fail-loud entry point the validation runner calls before any
+    model is fitted. It raises on:
+
+    * an availability claim that disagrees with the observed columns, and
+    * any column observed in train but not test while marked available in
+      test or cleared for inference.
+
+    Returns the verification frame when everything agrees.
+    """
+    assert_manifest_valid()
+    frame = verify_manifest_against_data(
+        train_columns,
+        test_columns,
+        tw_columns=tw_columns,
+        train_tw_columns=train_tw_columns,
+        test_tw_columns=test_tw_columns,
+    )
+    problems: list[str] = []
+
+    flagged = frame[frame["train_only_but_marked_available"]]
+    for _, row in flagged.iterrows():
+        problems.append(
+            f"{row['feature_name']}: observed in TRAIN only, but the manifest "
+            f"reports test_availability={row['claim_in_test']} / "
+            f"decision={row['decision']}. A train-only feature must be "
+            "TRAIN_ANALYSIS_ONLY or REJECT and never enter the test matrix."
+        )
+
+    disagreements = frame[(~frame["agrees"]) & (~frame["train_only_but_marked_available"])]
+    for _, row in disagreements.iterrows():
+        problems.append(
+            f"{row['feature_name']}: manifest claims train="
+            f"{row['claim_in_train']}/test={row['claim_in_test']}, observed "
+            f"train={row['observed_in_train']}/test={row['observed_in_test']}."
+        )
+
+    if problems:
+        raise SchemaVerificationError(
+            "Feature manifest disagrees with the observed train/test "
+            "schemas; refusing to proceed to modelling.\n  - "
+            + "\n  - ".join(problems)
+        )
+    return frame
+
+
+def assert_audited_schemas() -> pd.DataFrame:
+    """Verify the manifest against the recorded Kaggle schema audit.
+
+    Runs without a data mount, so the invariant is checkable in CI and in the
+    test suite: the manifest must agree with
+
+        train typewell: ['TVT', 'GR', 'Geology']
+        test  typewell: ['TVT', 'GR']
+    """
+    return assert_manifest_matches_data(
+        AUDITED_TRAIN_HW_COLUMNS,
+        AUDITED_TEST_HW_COLUMNS,
+        train_tw_columns=AUDITED_TRAIN_TYPEWELL_COLUMNS,
+        test_tw_columns=AUDITED_TEST_TYPEWELL_COLUMNS,
+    )
+
+
+# --------------------------------------------------------------------------
+# Provenance: which raw columns does the inference matrix ultimately rest on?
+# --------------------------------------------------------------------------
+
+def root_sources(feature_name: str, _seen: "set[str] | None" = None) -> set[str]:
+    """Raw (tier-1) columns a feature ultimately derives from.
+
+    Walks the ``parents`` graph to its roots, so ``align_shift`` resolves to
+    ``{GR, Typewell GR, Typewell TVT, MD, TVT_input}`` rather than to its
+    immediate parents. Cycles are impossible in a well-formed manifest but are
+    guarded against anyway.
+    """
+    _seen = set() if _seen is None else _seen
+    if feature_name in _seen:
+        return set()
+    _seen.add(feature_name)
+    spec = next((s for s in MANIFEST if s.feature_name == feature_name), None)
+    if spec is None:
+        return {feature_name}
+    if not spec.parents:
+        return {spec.feature_name}
+    roots: set[str] = set()
+    for parent in spec.parents:
+        roots |= root_sources(parent, _seen)
+    return roots
+
+
+def inference_feature_provenance() -> dict[str, set[str]]:
+    """``{feature -> root raw columns}`` for every inference-cleared feature."""
+    return {name: root_sources(name) for name in safe_inference_features()}
+
+
+def assert_inference_provenance() -> dict[str, set[str]]:
+    """Prove the inference feature set rests only on test-available columns.
+
+    Requirement: the final inference matrix may contain only MD, X, Y, Z, GR,
+    the visible-prefix part of TVT_input, Typewell TVT, Typewell GR, and safe
+    features derived from those. This walks each cleared feature back to its
+    raw roots and rejects anything outside that set — which is what keeps
+    Typewell Geology and the formation markers out transitively, not just by
+    name.
+    """
+    allowed = set(SAFE_RAW_INFERENCE_SOURCES)
+    provenance = inference_feature_provenance()
+    problems: list[str] = []
+    for name, roots in sorted(provenance.items()):
+        illegal = sorted(roots - allowed)
+        if illegal:
+            problems.append(
+                f"{name}: derives from {illegal}, which are not permitted "
+                "sources for an inference feature."
+            )
+    if problems:
+        raise ManifestInconsistency(
+            "Inference feature provenance check failed.\n  - "
+            + "\n  - ".join(problems)
+            + f"\n\nPermitted raw sources: {sorted(allowed)}"
+        )
+    return provenance
+
+
+def assert_inference_matrix(columns, *, context: str = "final inference matrix") -> None:
+    """Full safety gate for a matrix that will be used at inference time.
+
+    Stricter than ``assert_safe_features``: besides the whitelist check it
+    re-verifies the manifest against the audited Kaggle schemas and proves
+    every cleared feature's provenance traces back only to columns that exist
+    in test. A matrix is cleared only when the document it is checked against
+    still matches reality.
+    """
+    assert_audited_schemas()
+    assert_inference_provenance()
+    assert_safe_features(columns, context=context)

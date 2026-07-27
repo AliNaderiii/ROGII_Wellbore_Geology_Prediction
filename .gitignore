@@ -2,6 +2,9 @@ __pycache__/
 *.pyc
 .venv/
 submission.csv
+# generated feature cache (never a deliverable)
+validation_cache/
+reports/validation_cache/
 # reports are written to /kaggle/working/reports, not the repo
 reports/*.csv
 reports/*.md

@@ -16,6 +16,8 @@ Structural properties reproduced from the audit findings:
 * clean `TVT_input` prefix / NaN suffix, no internal gaps
 * train wells carry `TVT` plus the six train-only markers
 * test wells carry neither the target nor the markers
+* train typewells are `['TVT', 'GR', 'Geology']`; test typewells are
+  `['TVT', 'GR']` — the Geology column is train-only, per the schema audit
 * GR missingness in contiguous blocks, including wells above 50%
 * wells laid out on a map with a dipping, folded structural surface, so
   offset-well (spatial) features carry genuine signal
@@ -63,17 +65,27 @@ def _landing_field(x: np.ndarray, y: np.ndarray, seed_field: int = 23) -> np.nda
     )
 
 
-def _typewell(rng: np.random.Generator, tvt_lo=-140.0, tvt_hi=140.0) -> pd.DataFrame:
-    """Reference GR log with distinctive marker beds, on a 0.25 ft TVT grid."""
+def _typewell(
+    rng: np.random.Generator, tvt_lo=-140.0, tvt_hi=140.0, *, with_geology: bool = True
+) -> pd.DataFrame:
+    """Reference GR log with distinctive marker beds, on a 0.25 ft TVT grid.
+
+    ``with_geology`` reproduces the audited train/test asymmetry: train
+    typewells are ``['TVT', 'GR', 'Geology']``, test typewells ``['TVT', 'GR']``.
+    """
     tvt = np.arange(tvt_lo, tvt_hi, 0.25)
     gr = 70 + 18 * np.sin(tvt / 11.0) + 9 * np.sin(tvt / 3.1 + 1.2)
     for centre, amp, width in [(-95, 55, 4), (-40, -35, 6), (5, 60, 3),
                                (48, -30, 5), (96, 45, 4)]:
         gr += amp * np.exp(-0.5 * ((tvt - centre) / width) ** 2)
     gr += rng.normal(0, 1.5, tvt.size)
-    edges = np.linspace(tvt_lo, tvt_hi, len(FORMATIONS) + 1)
-    geo = [FORMATIONS[min(int(np.searchsorted(edges, t, "right")) - 1, 5)] for t in tvt]
-    return pd.DataFrame({"TVT": tvt, "GR": gr, "Geology": geo})
+    frame = pd.DataFrame({"TVT": tvt, "GR": gr})
+    if with_geology:
+        edges = np.linspace(tvt_lo, tvt_hi, len(FORMATIONS) + 1)
+        frame["Geology"] = [
+            FORMATIONS[min(int(np.searchsorted(edges, t, "right")) - 1, 5)] for t in tvt
+        ]
+    return frame
 
 
 def _well(
@@ -126,7 +138,9 @@ def _well(
     surface = _structural_surface(x, y)
     z = surface - tvt
 
-    tw = _typewell(rng)
+    # Geology is a train-only typewell column (schema audit): train typewells
+    # are ['TVT', 'GR', 'Geology'], test typewells ['TVT', 'GR'].
+    tw = _typewell(rng, with_geology=with_target)
     gr = np.interp(tvt, tw["TVT"].to_numpy(), tw["GR"].to_numpy())
     gr = gr + rng.normal(0, 4.0, n) + rng.uniform(-6, 6)  # noise + calibration offset
 

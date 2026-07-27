@@ -51,7 +51,15 @@ import pandas as pd
 from src import reporting
 from src.baselines import BASELINE_ORDER, BASELINES, HAVE_LIGHTGBM
 from src.data import discover_wells, load_well
-from src.manifest import verify_manifest_against_data, write_manifest
+from src.manifest import (
+    SchemaVerificationError,
+    assert_inference_provenance,
+    assert_manifest_matches_data,
+    assert_manifest_valid,
+    safe_inference_features,
+    verify_manifest_against_data,
+    write_manifest,
+)
 from src.paths import TEST_DIR, TRAIN_DIR, ensure_reports_dir, require_competition_data
 from src.spatial import SpatialConfig
 from src.tasks import TaskConstructionError, make_task
@@ -101,7 +109,10 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--max-wells", type=int, default=None)
     ap.add_argument("--device", choices=("auto", "cpu", "gpu"), default="auto")
-    ap.add_argument("--cache-dir", default="/kaggle/working/validation_cache")
+    ap.add_argument("--cache-dir", default=None,
+                    help="feature cache directory; defaults to "
+                         "/kaggle/working/validation_cache on Kaggle and to "
+                         "<reports-dir>/../validation_cache elsewhere")
     ap.add_argument("--clear-cache", action="store_true")
     ap.add_argument("--max-runtime-minutes", type=float, default=None)
     ap.add_argument("--n-splits", type=int, default=5)
@@ -126,6 +137,9 @@ def main(argv=None) -> int:
     ap.add_argument("--expect-test", type=int, default=None,
                     help="fail unless exactly this many test wells are found "
                          "(use 3 on the real Kaggle mount)")
+    ap.add_argument("--verify-only", action="store_true",
+                    help="run the manifest + schema preflight and exit without "
+                         "training anything (non-zero exit on any mismatch)")
     ap.add_argument("--quiet", action="store_true")
     args = ap.parse_args(argv)
 
@@ -145,7 +159,15 @@ def main(argv=None) -> int:
     t_start = time.perf_counter()
     resources = detect_resources(args.device)
     os.environ["ROGII_LIGHTGBM_DEVICE"] = resources.selected
-    cache = FeatureCache(args.cache_dir)
+    cache_dir = args.cache_dir
+    if cache_dir is None:
+        kaggle_working = Path("/kaggle/working")
+        cache_dir = (
+            kaggle_working / "validation_cache"
+            if kaggle_working.exists()
+            else reports_dir.parent / "validation_cache"
+        )
+    cache = FeatureCache(cache_dir)
     if args.clear_cache:
         cache.clear()
     if verbose:
@@ -176,9 +198,16 @@ def main(argv=None) -> int:
         print(f"lightgbm    : {'available' if HAVE_LIGHTGBM else 'NOT INSTALLED'}")
 
     # ---------------------------------------------------------- manifest --
+    # The manifest must be internally consistent before it is written, let
+    # alone enforced: a document that marks a train-only column as available
+    # in test would authorise exactly the leak it exists to prevent.
+    assert_manifest_valid()
+    assert_inference_provenance()
     write_manifest(reports_dir / "feature_manifest.csv")
     if verbose:
         print(f"\n[1/5] feature manifest -> {reports_dir / 'feature_manifest.csv'}")
+        print(f"      manifest self-validation: OK "
+              f"({len(safe_inference_features())} features cleared for inference)")
 
     train_loader = WellLoader("train")
     all_train_ids = train_loader.ids()
@@ -194,34 +223,78 @@ def main(argv=None) -> int:
             entry = train_loader.files[wid]
             cache.put(key, n_horizontal=np.asarray([entry.horizontal.stat().st_size if entry.horizontal and entry.horizontal.exists() else -1], dtype=np.int64), has_typewell=np.asarray([int(bool(entry.typewell and entry.typewell.exists()))], dtype=np.int8))
 
+    # -- schema verification preflight -------------------------------------
     # Re-verify the manifest's availability claims against the real columns.
-    verification = pd.DataFrame()
+    #
+    # This gate is deliberately NOT wrapped in a broad `except`. It previously
+    # was, which meant a genuine schema disagreement — including a train-only
+    # column advertised as available in test — was printed as "skipped" and the
+    # run proceeded to fit models anyway. Any failure here now stops the run
+    # before a single model is trained.
+    probe_train = train_loader(all_train_ids[0]) if all_train_ids else None
+    test_files = discover_wells("test")
+    probe_test = None
+    for wid in test_ids:
+        entry = test_files.get(wid)
+        if entry is not None and entry.horizontal is not None:
+            probe_test = load_well(entry)
+            break
+
+    if probe_train is None or probe_test is None:
+        raise SystemExit(
+            "Cannot verify the feature manifest: failed to load a probe well "
+            f"(train probe={'ok' if probe_train is not None else 'MISSING'}, "
+            f"test probe={'ok' if probe_test is not None else 'MISSING'}). "
+            "Refusing to train against an unverified schema."
+        )
+
+    train_tw_cols = list(probe_train.tw.columns) if probe_train.tw is not None else None
+    test_tw_cols = list(probe_test.tw.columns) if probe_test.tw is not None else None
+    if verbose:
+        print(f"      train typewell columns: {train_tw_cols}")
+        print(f"      test  typewell columns: {test_tw_cols}")
+
+    verification = verify_manifest_against_data(
+        probe_train.hw.columns,
+        probe_test.hw.columns,
+        train_tw_columns=train_tw_cols,
+        test_tw_columns=test_tw_cols,
+    )
+    verification.to_csv(reports_dir / "feature_manifest_verification.csv", index=False)
+
     try:
-        probe_train = train_loader(all_train_ids[0]) if all_train_ids else None
-        test_files = discover_wells("test")
-        probe_test = None
-        for wid in test_ids:
-            entry = test_files.get(wid)
-            if entry is not None and entry.horizontal is not None:
-                probe_test = load_well(entry)
-                break
-        if probe_train is not None and probe_test is not None:
-            verification = verify_manifest_against_data(
-                probe_train.hw.columns,
-                probe_test.hw.columns,
-                train_tw_columns=(probe_train.tw.columns if probe_train.tw is not None else None),
-                test_tw_columns=(probe_test.tw.columns if probe_test.tw is not None else None),
-            )
-            verification.to_csv(reports_dir / "feature_manifest_verification.csv", index=False)
-            bad_rows = verification[~verification["agrees"]]
-            if len(bad_rows):
-                raise SystemExit(
-                    "Feature manifest disagrees with observed train/test schemas: "
-                    + ", ".join(bad_rows["feature_name"].astype(str))
-                )
-    except Exception as exc:  # pragma: no cover
-        if verbose:
-            print(f"  manifest verification skipped: {type(exc).__name__}: {exc}")
+        assert_manifest_matches_data(
+            probe_train.hw.columns,
+            probe_test.hw.columns,
+            train_tw_columns=train_tw_cols,
+            test_tw_columns=test_tw_cols,
+        )
+    except SchemaVerificationError as exc:
+        raise SystemExit(
+            f"{exc}\n\nVerification detail written to "
+            f"{reports_dir / 'feature_manifest_verification.csv'}.\n"
+            "No model was trained."
+        ) from exc
+
+    train_only_observed = verification.loc[
+        verification["observed_train_only"], "feature_name"
+    ].astype(str).tolist()
+    if verbose:
+        print("      manifest schema verification: OK "
+              f"({len(verification)} raw features checked)")
+        print(f"      train-only (excluded from inference): {train_only_observed}")
+
+    if args.verify_only:
+        print("\nPreflight passed: the manifest agrees with the observed "
+              "train/test schemas.")
+        print(f"  train typewell columns : {train_tw_cols}")
+        print(f"  test  typewell columns : {test_tw_cols}")
+        print(f"  train-only features    : {train_only_observed}")
+        print(f"  inference features     : {len(safe_inference_features())}")
+        print(f"  verification report    : "
+              f"{reports_dir / 'feature_manifest_verification.csv'}")
+        print("No model was trained (--verify-only).")
+        return 0
 
     # ------------------------------------------------------------- guard --
     blocked_present = sorted(set(test_ids) & BLOCKED_WELL_IDS)
@@ -405,6 +478,13 @@ def main(argv=None) -> int:
         "cache_dir": str(cache.directory),
         "n_train_wells_discovered": len(all_train_ids),
         "n_test_wells_discovered": len(test_ids),
+        # Schema facts this run was verified against, so a report can always be
+        # traced back to the schema that authorised it.
+        "train_typewell_columns": train_tw_cols,
+        "test_typewell_columns": test_tw_cols,
+        "train_only_features_observed": train_only_observed,
+        "manifest_schema_verified": True,
+        "safe_inference_features": safe_inference_features(),
         "n_wells_validated": int(well_df["well_id"].nunique()),
         # points per (protocol, model), not summed across models -- summing
         # would multiply the dataset size by the number of models scored
