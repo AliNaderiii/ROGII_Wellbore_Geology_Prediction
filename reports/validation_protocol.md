@@ -292,7 +292,43 @@ nothing but self-matches, all of which were discarded, yielding zero
 neighbours and all-empty features with no error raised. The fetch size must
 account for the well's own sample count.
 
-## 6. Honesty constraints on reporting
+## 6. Controlled experiment — Dip-Constrained GR/Typewell Alignment
+
+The command below runs one isolated A/B only; it does **not** start a Particle
+Filter, Beam Search, final ensemble, or a Ridge-plus-alignment stack:
+
+```bash
+python scripts/run_validation.py --dip-alignment-experiment --expect-train 773 --expect-test 3
+```
+
+It evaluates `ridge` (unchanged baseline) and `dip_constrained_alignment` under
+both protocols separately. The experimental aligner:
+
+1. fits a local apparent stratigraphic plane to `TVT_input + Z` on the visible
+   prefix using `MD`, `X`, `Y`, and `Z`; this yields a geometry-only fallback
+   and an expected local TVT gradient;
+2. aligns **horizontal GR** with **Typewell GR**, searching Typewell-TVT
+   reference coordinates only around that prefix-derived dip trajectory;
+3. calibrates GR amplitude and a constant track offset on the visible prefix
+   only; no `TVT` label is reachable through the `InferenceTask` supplied to
+   the feature builder or model;
+4. blends GR alignment movement with the dip fallback by reported alignment
+   confidence. Low confidence or a missing/unusable typewell/GR logs a
+   fallback count and reason rather than silently emitting an unconstrained
+   pick.
+
+The Typewell TVT column is a reference coordinate paired with Typewell GR and
+is inference-safe. **Typewell Geology, formation markers, external artifacts,
+and the train `TVT` label are never read.** Alignment tracks, confidence,
+dip fallback, and failure code are cached by well and exact simulated boundary;
+the cache rejects target-like artifacts. `dip_constrained_alignment_real.md`
+and `dip_constrained_alignment_ablation.csv` report confidence, alignment
+failure wells, fallback points, cache hits, and the per-protocol A/B RMSE. The
+real error report also records a report-only visible-prefix horizontal-GR/Typewell-GR
+Pearson correlation for investigating weak typewell matches; it never enters a
+model matrix.
+
+## 7. Honesty constraints on reporting
 
 - Every number in the generated reports is computed in that run. There are no
   placeholders and no carried-forward values.
@@ -304,7 +340,7 @@ account for the well's own sample count.
 - Prediction length is asserted against the task's row count, so a
   silently truncated prediction fails loudly instead of scoring on a subset.
 
-## 7. What is never used as a feature
+## 8. What is never used as a feature
 
 Confirmed by test, not merely by intent:
 
@@ -318,8 +354,10 @@ Confirmed by test, not merely by intent:
 | Public leaderboard results | No leaderboard value is read anywhere in the codebase |
 | External pretrained artifacts | Out of scope this phase; `reports/decision_table.md` keeps them at NEEDS FURTHER REVIEW |
 
-## 8. Scope boundary
+## 9. Scope boundary
 
-Per the plan, this phase implements **only** the seven approved baselines.
-Particle filters, beam search, DTW ensembles and external pretrained artifacts
-are explicitly out of scope until these results are reviewed and approved.
+This phase retains the seven approved baselines plus the **isolated**
+Dip-Constrained GR/Typewell Alignment A/B described in §6. It does not add that
+alignment as a Ridge feature or an ensemble. Particle filters, beam search, DTW
+ensembles and external pretrained artifacts remain explicitly out of scope
+until these results are reviewed and approved.

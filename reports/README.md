@@ -35,6 +35,12 @@ locally):
 | `validation_protocol_run.md` | Parameters of that specific execution |
 | `run_environment.json` | Versions, runtime, peak memory, guard status |
 | `feature_manifest_verification.csv` | Manifest claims re-checked against the observed columns |
+| `protocol_comparison_real.md` | Exact, separately reported Ridge protocol counts, distributions, ranges and scoring-region audit (`--real-analysis`) |
+| `error_analysis_real.csv` | Ridge per-well error, target-range, curvature, GR/typewell-alignment and tail flags (`--real-analysis`) |
+| `gr_missingness_error_real.csv`, `suffix_length_error_real.csv`, `prefix_length_error_real.csv` | Separate protocol-stratified Ridge error tables (`--real-analysis`) |
+| `worst_wells_real.csv` | Top-20 Ridge wells **within each protocol**, never a combined rank (`--real-analysis`) |
+| `spatial_ablation_real.md` | Per-protocol spatial Ridge A/B plus actual population/non-constant diagnostics (`--real-analysis`) |
+| `dip_constrained_alignment_ablation.csv`, `dip_constrained_alignment_real.md` | Isolated Ridge vs dip-constrained GR/typewell A/B with confidence/failure/fallback counts (`--dip-alignment-experiment`) |
 
 Audit-phase outputs (`input_inventory.md`, `dataset_schema.csv`,
 `well_summary.csv`, `data_quality_initial.md`, `sample_submission_audit.md`,

@@ -22,6 +22,8 @@ Outputs (into REPORTS_DIR):
     run_environment.json
     baseline_report.md
     validation_protocol_run.md      the parameters of THIS run
+    protocol_comparison_real.md     with --real-analysis; computed real-run protocol/error report
+    dip_constrained_alignment_*     with --dip-alignment-experiment; isolated Ridge A/B
 
 Every number in those files is computed here. Nothing is estimated, assumed, or
 copied from a previous run: if a stage cannot run, it is recorded as
@@ -49,6 +51,7 @@ import numpy as np
 import pandas as pd
 
 from src import reporting
+from src.real_reporting import write_real_analysis
 from src.baselines import BASELINE_ORDER, BASELINES, HAVE_LIGHTGBM
 from src.data import discover_wells, load_well
 from src.manifest import (
@@ -125,6 +128,10 @@ def main(argv=None) -> int:
                     help="also run the spatial-feature A/B for ridge + lightgbm")
     ap.add_argument("--spatial-k", type=int, default=12)
     ap.add_argument("--spatial-radius", type=float, default=6000.0)
+    ap.add_argument("--dip-alignment-experiment", action="store_true",
+                    help="run ONLY the isolated dip-constrained GR/Typewell alignment vs unchanged Ridge, under both protocols")
+    ap.add_argument("--real-analysis", action="store_true",
+                    help="write protocol_comparison_real.md and the real-run error-analysis tables from this completed run")
     ap.add_argument("--in-sample-diagnostic", action="store_true",
                     help="additionally run the deliberately-invalid in-sample "
                          "fit/score, to quantify the memorisation gap")
@@ -175,7 +182,14 @@ def main(argv=None) -> int:
         print(f"CPU/RAM     : {resources.cpu_count} cores / {resources.ram_mb or 'unknown'} MB")
         print(f"cache       : {cache.directory}")
 
+    # The alignment run is intentionally an isolated A/B: no spatial variant,
+    # no stacker and no other baseline can enter its model comparison.
     model_names = [m.strip() for m in args.models.split(",") if m.strip()]
+    if args.dip_alignment_experiment:
+        if args.spatial:
+            raise SystemExit("--dip-alignment-experiment is an isolated Ridge A/B; do not combine it with --spatial")
+        model_names = ["ridge", "dip_constrained_alignment"]
+        args.real_analysis = True
     unknown = [m for m in model_names if m not in BASELINES]
     if unknown:
         raise SystemExit(f"unknown model(s): {unknown}; known: {BASELINE_ORDER}")
@@ -185,6 +199,8 @@ def main(argv=None) -> int:
     bad = [p for p in protocols if p not in (PROTOCOL_A, PROTOCOL_B)]
     if bad:
         raise SystemExit(f"unknown protocol(s): {bad}; known: {PROTOCOL_A}, {PROTOCOL_B}")
+    if args.dip_alignment_experiment and set(protocols) != {PROTOCOL_A, PROTOCOL_B}:
+        raise SystemExit("--dip-alignment-experiment must evaluate both same_well_masked and unseen_well")
 
     if verbose:
         print("=" * 72)
@@ -320,6 +336,15 @@ def main(argv=None) -> int:
             f"expected {args.expect_test} test wells, discovered "
             f"{len(test_ids)} in {TEST_DIR}."
         )
+    # A file named *_real must not be generated from a quick subset or the
+    # synthetic harness. The actual audited mount has 773 train / 3 test wells
+    # (770 usable validation tasks after task construction).
+    if args.real_analysis and (len(all_train_ids) != 773 or len(test_ids) != 3):
+        raise SystemExit(
+            "--real-analysis requires the audited complete competition mount "
+            f"(773 train, 3 test); discovered {len(all_train_ids)} train and {len(test_ids)} test. "
+            "Use the ordinary/synthetic reports for a non-real fixture."
+        )
 
     if verbose:
         print(f"\n[2/5] wells: {len(all_train_ids)} train, {len(test_ids)} test")
@@ -353,6 +378,7 @@ def main(argv=None) -> int:
     fold_records: list[dict] = []
     failures: list[dict] = []
     spatial_notes: list[dict] = []
+    spatial_feature_notes: list[dict] = []
 
     # ------------------------------- protocol A: same-well masked suffix ---
     if PROTOCOL_A in protocols:
@@ -366,11 +392,14 @@ def main(argv=None) -> int:
             task_builder=task_builder,
             spatial_config=spatial_config,
             verbose=verbose,
+            alignment_cache=cache,
+            cache_context={"dataset_version": dataset_version},
         )
         well_rows += run.well_results
         fold_records += run.fold_records
         failures += run.failures
         spatial_notes += [{**n, "protocol": PROTOCOL_A} for n in run.spatial_notes]
+        spatial_feature_notes += run.spatial_feature_notes
 
     # ----------------------------------- protocol B: unseen-well GroupKFold --
     if PROTOCOL_B in protocols:
@@ -384,11 +413,14 @@ def main(argv=None) -> int:
             task_builder=task_builder,
             spatial_config=spatial_config,
             verbose=verbose,
+            alignment_cache=cache,
+            cache_context={"dataset_version": dataset_version},
         )
         well_rows += run.well_results
         fold_records += run.fold_records
         failures += run.failures
         spatial_notes += [{**n, "protocol": PROTOCOL_B} for n in run.spatial_notes]
+        spatial_feature_notes += run.spatial_feature_notes
 
     # ------------------------- deliberately invalid in-sample diagnostic ----
     if args.in_sample_diagnostic:
@@ -426,17 +458,18 @@ def main(argv=None) -> int:
 
     spatial_df = pd.DataFrame()
     if args.spatial:
-        spatial_diag = pd.DataFrame(spatial_notes)
-        spatial_diag.to_csv(reports_dir / "spatial_construction.csv", index=False)
-        # A non-empty, machine-readable diagnostic is produced even when a
-        # fold has no valid donors; this prevents silent all-zero spatial runs.
+        spatial_construction = pd.DataFrame(spatial_notes)
+        spatial_construction.to_csv(reports_dir / "spatial_construction.csv", index=False)
+        # Per-validation-row feature observations establish whether an RMSE
+        # result reflects useful variation or a silently empty matrix.
+        spatial_diag = pd.DataFrame(spatial_feature_notes)
         if spatial_diag.empty:
-            spatial_diag = pd.DataFrame([{"spatial_fallback_used": True, "reason": "no valid fold donors"}])
+            spatial_diag = pd.DataFrame([{
+                "spatial_fallback_used": True,
+                "reason": "no validation-row spatial diagnostics were produced",
+            }])
         else:
-            spatial_diag["spatial_fallback_used"] = spatial_diag["n_samples"].fillna(0).eq(0)
-            spatial_diag["neighbor_count"] = spatial_diag["n_samples"]
-            spatial_diag["nearest_neighbor_distance"] = np.nan
-            spatial_diag["missing_fraction"] = spatial_diag["spatial_fallback_used"].astype(float)
+            spatial_diag["spatial_fallback_used"] = spatial_diag["n_populated"].fillna(0).eq(0)
         spatial_diag.to_csv(reports_dir / "spatial_feature_diagnostics.csv", index=False)
         ab = reporting.spatial_ablation(results)
         ab.to_csv(reports_dir / "spatial_ablation.csv", index=False)
@@ -452,7 +485,10 @@ def main(argv=None) -> int:
     comp_df = pd.DataFrame(comparison)
     comp_df.to_csv(reports_dir / "protocol_comparison.csv", index=False)
     (reports_dir / "protocol_comparison.md").write_text(
-        "# Validation protocol comparison\n\nProtocols are reported separately; no score is averaged across protocols.\n\n" + (comp_df.to_markdown(index=False) if len(comp_df) else "_No completed protocols._") + "\n", encoding="utf-8")
+        "# Validation protocol comparison\n\nProtocols are reported separately; no score is averaged across protocols.\n\n"
+        + (reporting._md_table(comp_df) if len(comp_df) else "_No completed protocols._\n"),
+        encoding="utf-8",
+    )
 
     runtime = time.perf_counter() - t_start
     env = {
@@ -498,6 +534,8 @@ def main(argv=None) -> int:
         "protocols": protocols,
         "in_sample_diagnostic": bool(args.in_sample_diagnostic),
         "spatial_enabled": bool(args.spatial),
+        "dip_alignment_experiment": bool(args.dip_alignment_experiment),
+        "real_analysis_requested": bool(args.real_analysis),
         "blocked_well_ids": sorted(BLOCKED_WELL_IDS),
         "blocked_wells_in_validation": 0,
         "n_failures": int(len(failures_df)),
@@ -523,6 +561,15 @@ def main(argv=None) -> int:
         env=env,
         folds=pd.DataFrame(fold_records),
     )
+
+    if args.real_analysis:
+        if "SYNTHETIC" in str(args.label).upper():
+            raise SystemExit(
+                "--real-analysis refuses a synthetic-labelled run. Real analysis must be computed from the mounted competition data."
+            )
+        produced = write_real_analysis(reports_dir)
+        if verbose:
+            print("      real analysis -> " + ", ".join(p.name for p in produced))
 
     if verbose:
         print(f"\n[5/5] reports written to {reports_dir}")

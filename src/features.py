@@ -204,6 +204,37 @@ def geometry_features(task: InferenceTask) -> dict:
     }
 
 
+def typewell_gr_prefix_correlation(
+    task: InferenceTask,
+    ref: TypewellReference,
+    gr_z: np.ndarray,
+    *,
+    gr_missing: np.ndarray,
+) -> float:
+    """Actual horizontal-GR/Typewell-GR Pearson r on visible TVT_input rows.
+
+    This is an inference-time diagnostic, not a feature.  The visible prefix
+    provides the Typewell TVT coordinate for each measured horizontal GR row;
+    both logs are then compared after the prefix-only robust calibration.  It
+    is intentionally separate from ``align_score`` (match discriminability)
+    and from the hidden-label scorer.
+    """
+    if not ref.ok:
+        return np.nan
+    s = task.start
+    signal = calibrate_gr_to_reference(task, ref, gr_z)
+    known = np.isfinite(task.tvt_known[:s])
+    expected = np.interp(task.tvt_known[:s], ref.grid, ref.gr_z)
+    missing = np.asarray(gr_missing[:s], dtype=bool)
+    m = known & np.isfinite(signal[:s]) & np.isfinite(expected) & ~missing
+    if int(m.sum()) < 10:
+        return np.nan
+    a, b = signal[:s][m], expected[m]
+    if float(np.std(a)) <= 1e-9 or float(np.std(b)) <= 1e-9:
+        return np.nan
+    return float(np.corrcoef(a, b)[0, 1])
+
+
 # ---------------------------------------------------------- ncc alignment --
 
 def _ncc(a: np.ndarray, b: np.ndarray) -> float:
@@ -382,6 +413,7 @@ def alignment_features(
             "align_gradient": np.zeros(n),
             "_align_bias": 0.0,
             "_align_ok": False,
+            "_align_gr_correlation": np.nan,
         }
 
     anchor = task.anchor_tvt
@@ -433,6 +465,7 @@ def alignment_features(
             "align_gradient": np.zeros(n),
             "_align_bias": 0.0,
             "_align_ok": False,
+            "_align_gr_correlation": np.nan,
         }
 
     rows = np.arange(n, dtype="float64")
@@ -450,6 +483,24 @@ def alignment_features(
             bias = float(np.median(resid))
     align_tvt = align_tvt + bias
 
+    # A report-only, actual GR-to-Typewell-GR Pearson correlation on the
+    # predicted rows. It is distinct from `align_score`, whose documented role
+    # is match discriminability. This uses only the hidden-region GR signal and
+    # the alignment track, never its TVT label.
+    sl = slice(task.start, task.stop)
+    observed_gr = signal[sl]
+    reference_gr = np.interp(align_tvt[sl], ref.grid, ref.gr_z)
+    corr_mask = (
+        np.isfinite(observed_gr)
+        & np.isfinite(reference_gr)
+        & ~gr_missing[sl]
+    )
+    gr_correlation = np.nan
+    if int(corr_mask.sum()) >= 10:
+        a, b = observed_gr[corr_mask], reference_gr[corr_mask]
+        if float(np.std(a)) > 1e-9 and float(np.std(b)) > 1e-9:
+            gr_correlation = float(np.corrcoef(a, b)[0, 1])
+
     return {
         "align_tvt": align_tvt,
         "align_score": align_score,
@@ -457,8 +508,271 @@ def alignment_features(
         "align_gradient": align_grad,
         "_align_bias": bias,
         "_align_ok": True,
+        "_align_gr_correlation": gr_correlation,
     }
 
+
+# -------------------------------------------------- dip-constrained GR alignment --
+#
+# This is intentionally a *separate* alignment path.  It is not added to
+# FEATURE_COLUMNS, so the established Ridge baseline cannot accidentally use
+# it.  The controlled experiment in baselines.py consumes it directly.
+
+DIP_ALIGNMENT_VERSION = "dip-gr-typewell-v1"
+DIP_ALIGNMENT_WINDOW = 201
+DIP_ALIGNMENT_STRIDE = 50
+DIP_ALIGNMENT_SEARCH = 12.0
+DIP_ALIGNMENT_MIN_PREFIX_ROWS = 30
+
+
+def _empty_dip_alignment(n: int, reason: str, *, fallback: np.ndarray | None = None) -> dict:
+    """Return a diagnostic-rich, target-free failed alignment bundle."""
+    track = np.full(n, np.nan)
+    fallback = np.zeros(n, dtype="float64") if fallback is None else fallback
+    return {
+        "track": track,
+        "confidence": np.zeros(n, dtype="float64"),
+        "dip_prediction": np.asarray(fallback, dtype="float64"),
+        "expected_gradient": np.zeros(n, dtype="float64"),
+        "ok": False,
+        "failure_reason": reason,
+        "dip_r2": np.nan,
+        "cache_hit": False,
+    }
+
+
+def dip_constrained_prediction(task: InferenceTask) -> dict:
+    """Fit a locally planar stratigraphic surface from the *visible* prefix.
+
+    The fitted quantity is ``TVT_input + Z``.  We regress it on centered X/Y
+    coordinates (in 1,000-ft units) and then evaluate the plane along the
+    planned trajectory.  Re-anchoring at the last visible TVT_input keeps this
+    geometry-only fallback continuous at Prediction Start.
+
+    No ``TVT`` label or typewell geology is read here.  The function receives
+    an ``InferenceTask``, which structurally has no target field.
+    """
+    n, s = task.n_rows, task.start
+    anchor = task.anchor_tvt
+    anchor = anchor if np.isfinite(anchor) else 0.0
+    default = np.full(n, anchor, dtype="float64")
+    if s < DIP_ALIGNMENT_MIN_PREFIX_ROWS or task.anchor_row < 0:
+        return {
+            "ok": False, "prediction": default, "gradient": np.zeros(n),
+            "r2": np.nan, "reason": "insufficient_visible_prefix",
+        }
+
+    known = np.isfinite(task.tvt_known[:s])
+    m = known & np.isfinite(task.x[:s]) & np.isfinite(task.y[:s]) & np.isfinite(task.z[:s])
+    if int(m.sum()) < DIP_ALIGNMENT_MIN_PREFIX_ROWS:
+        return {
+            "ok": False, "prediction": default, "gradient": np.zeros(n),
+            "r2": np.nan, "reason": "insufficient_visible_dip_support",
+        }
+
+    # Scaling avoids a poorly conditioned solve at field-coordinate magnitudes.
+    x0 = float(task.x[task.anchor_row])
+    y0 = float(task.y[task.anchor_row])
+    z0 = float(task.z[task.anchor_row])
+    if not (np.isfinite(x0) and np.isfinite(y0) and np.isfinite(z0)):
+        return {
+            "ok": False, "prediction": default, "gradient": np.zeros(n),
+            "r2": np.nan, "reason": "invalid_anchor_geometry",
+        }
+    px = (task.x[:s][m] - x0) / 1000.0
+    py = (task.y[:s][m] - y0) / 1000.0
+    surface = task.tvt_known[:s][m] + task.z[:s][m]
+    A = np.column_stack([px, py, np.ones_like(px)])
+    # A tiny ridge makes an along-track trajectory identifiable even when X/Y
+    # are nearly collinear.  It shrinks the unidentifiable cross-track dip,
+    # rather than inventing a large one.
+    gram = A.T @ A
+    penalty = np.diag([1e-4, 1e-4, 0.0])
+    try:
+        coef = np.linalg.solve(gram + penalty, A.T @ surface)
+    except np.linalg.LinAlgError:
+        return {
+            "ok": False, "prediction": default, "gradient": np.zeros(n),
+            "r2": np.nan, "reason": "dip_plane_fit_failed",
+        }
+    fitted = A @ coef
+    denom = float(np.sum((surface - np.mean(surface)) ** 2))
+    r2 = float(1.0 - np.sum((surface - fitted) ** 2) / denom) if denom > 1e-12 else 0.0
+
+    x_f, _ = interpolate_within_well(task.x)
+    y_f, _ = interpolate_within_well(task.y)
+    z_f, _ = interpolate_within_well(task.z)
+    surface_delta = coef[0] * (x_f - x0) / 1000.0 + coef[1] * (y_f - y0) / 1000.0
+    pred = anchor + surface_delta - (z_f - z0)
+    md_f, _ = interpolate_within_well(task.md)
+    try:
+        gradient = np.gradient(pred, md_f)
+    except (ValueError, np.linalg.LinAlgError):  # malformed MD is a fallback case
+        gradient = np.zeros(n, dtype="float64")
+    gradient = np.nan_to_num(gradient, nan=0.0, posinf=0.0, neginf=0.0)
+    return {"ok": True, "prediction": pred, "gradient": gradient, "r2": r2, "reason": ""}
+
+
+def dip_constrained_alignment_features(
+    task: InferenceTask,
+    ref: TypewellReference,
+    gr_z: np.ndarray,
+    *,
+    gr_missing: np.ndarray | None = None,
+    window: int = DIP_ALIGNMENT_WINDOW,
+    stride: int = DIP_ALIGNMENT_STRIDE,
+    search: float = DIP_ALIGNMENT_SEARCH,
+) -> dict:
+    """Align horizontal GR to Typewell GR under a prefix-derived dip prior.
+
+    Candidate TVT gradients are centered on the apparent dip implied by the
+    visible ``TVT_input``/X/Y/Z trajectory.  The matching signal is strictly
+    horizontal GR versus Typewell GR.  The known prefix is used only for the
+    same amplitude and constant-bias calibrations used by the existing NCC
+    feature; it never exposes a hidden label.
+    """
+    n = task.n_rows
+    dip = dip_constrained_prediction(task)
+    fallback = dip["prediction"]
+    if not dip["ok"]:
+        return _empty_dip_alignment(n, dip["reason"], fallback=fallback)
+    if not ref.ok:
+        return _empty_dip_alignment(n, "missing_or_invalid_typewell", fallback=fallback)
+    if n < window:
+        return _empty_dip_alignment(n, "well_shorter_than_alignment_window", fallback=fallback)
+    if gr_missing is None:
+        gr_missing = np.zeros(n, dtype=bool)
+    gr_missing = np.asarray(gr_missing, dtype=bool)
+    if bool(gr_missing.all()):
+        return _empty_dip_alignment(n, "horizontal_gr_all_missing", fallback=fallback)
+
+    signal = calibrate_gr_to_reference(task, ref, gr_z)
+    half = window // 2
+    centres = list(range(half, n, max(1, stride)))
+    if not centres:
+        return _empty_dip_alignment(n, "no_alignment_windows", fallback=fallback)
+    if centres[-1] != n - 1:
+        centres.append(n - 1)
+
+    raw_track = np.full(len(centres), np.nan)
+    raw_score = np.zeros(len(centres), dtype="float64")
+    raw_grad = np.zeros(len(centres), dtype="float64")
+    for i, c in enumerate(centres):
+        lo = max(0, c - half)
+        hi = min(n, lo + window)
+        lo = max(0, hi - window)
+        expected = float(dip["gradient"][c])
+        # The offsets are deliberately narrow.  The GR match can correct a
+        # local plane error, but cannot choose a geologically impossible slope.
+        gradients = tuple(np.clip(expected + np.asarray((-0.004, -0.002, -0.001, 0.0, 0.001, 0.002, 0.004)), -0.04, 0.04))
+        tvt, score, grad = align_window(
+            ref,
+            signal[lo:hi],
+            task.md[lo:hi],
+            float(fallback[c]),
+            search=search,
+            gradients=gradients,
+        )
+        measured = 1.0 - float(gr_missing[lo:hi].mean())
+        raw_track[i] = tvt
+        raw_score[i] = (score if np.isfinite(score) else 0.0) * measured
+        raw_grad[i] = grad if np.isfinite(grad) else expected
+
+    good = np.isfinite(raw_track)
+    if int(good.sum()) < 2:
+        return _empty_dip_alignment(n, "no_valid_gr_typewell_match", fallback=fallback)
+    rows = np.arange(n, dtype="float64")
+    cent = np.asarray(centres, dtype="float64")
+    track = np.interp(rows, cent[good], raw_track[good])
+    confidence = np.interp(rows, cent, raw_score)
+    gradient = np.interp(rows, cent, raw_grad)
+
+    # Calibrate only a constant level offset against visible TVT_input.  The
+    # movement in the hidden region stays entirely GR/dip-derived.
+    known = np.isfinite(task.tvt_known[: task.start])
+    if int(known.sum()) > 10:
+        residual = task.tvt_known[: task.start][known] - track[: task.start][known]
+        residual = residual[np.isfinite(residual)]
+        if residual.size:
+            track = track + float(np.median(residual))
+
+    return {
+        "track": track,
+        "confidence": np.clip(confidence, 0.0, 1.0),
+        "dip_prediction": fallback,
+        "expected_gradient": dip["gradient"],
+        "ok": True,
+        "failure_reason": "",
+        "dip_r2": float(dip["r2"]),
+        "cache_hit": False,
+    }
+
+
+def cached_dip_constrained_alignment_features(
+    task: InferenceTask,
+    ref: TypewellReference,
+    gr_z: np.ndarray,
+    *,
+    gr_missing: np.ndarray,
+    cache=None,
+    cache_context: dict | None = None,
+) -> dict:
+    """Target-free persistent cache for the expensive dip/GR alignment.
+
+    Only derived tracks, confidences, dip fallbacks and diagnostic codes are
+    persisted.  The cache API rejects target-like keys, and this function never
+    receives a ``WellTask.target``.  The task boundary is part of the key, so a
+    real suffix and a same-well mask cannot share an alignment artifact.
+    """
+    if cache is None:
+        return dip_constrained_alignment_features(task, ref, gr_z, gr_missing=gr_missing)
+    from src.cache import cache_key
+
+    context = cache_context or {}
+    key = cache_key(
+        dataset_version=context.get("dataset_version", "rogii-mounted-v1"),
+        well_id=task.well_id,
+        fold_id=context.get("fold", "feature"),
+        protocol=context.get("protocol", task.mode),
+        feature_config={
+            "name": DIP_ALIGNMENT_VERSION,
+            "n_rows": task.n_rows,
+            "start": task.start,
+            "stop": task.stop,
+        },
+        alignment_config={
+            "window": DIP_ALIGNMENT_WINDOW,
+            "stride": DIP_ALIGNMENT_STRIDE,
+            "search": DIP_ALIGNMENT_SEARCH,
+        },
+        device_profile={"feature_execution": "cpu"},
+        code_version=DIP_ALIGNMENT_VERSION,
+    )
+    hit = cache.get(key)
+    needed = {"track", "confidence", "dip_prediction", "expected_gradient", "ok", "reason", "dip_r2"}
+    if hit is not None and needed.issubset(hit) and len(hit["track"]) == task.n_rows:
+        return {
+            "track": np.asarray(hit["track"], dtype="float64"),
+            "confidence": np.asarray(hit["confidence"], dtype="float64"),
+            "dip_prediction": np.asarray(hit["dip_prediction"], dtype="float64"),
+            "expected_gradient": np.asarray(hit["expected_gradient"], dtype="float64"),
+            "ok": bool(np.asarray(hit["ok"]).ravel()[0]),
+            "failure_reason": str(np.asarray(hit["reason"]).ravel()[0]),
+            "dip_r2": float(np.asarray(hit["dip_r2"]).ravel()[0]),
+            "cache_hit": True,
+        }
+    out = dip_constrained_alignment_features(task, ref, gr_z, gr_missing=gr_missing)
+    cache.put(
+        key,
+        track=np.asarray(out["track"], dtype="float64"),
+        confidence=np.asarray(out["confidence"], dtype="float64"),
+        dip_prediction=np.asarray(out["dip_prediction"], dtype="float64"),
+        expected_gradient=np.asarray(out["expected_gradient"], dtype="float64"),
+        ok=np.asarray([int(bool(out["ok"]))], dtype="int8"),
+        reason=np.asarray([str(out["failure_reason"])]),
+        dip_r2=np.asarray([out["dip_r2"]], dtype="float64"),
+    )
+    return out
 
 # ------------------------------------------------------------ assembly -----
 
@@ -504,14 +818,36 @@ FEATURE_COLUMNS = ROW_FEATURES + SCALAR_FEATURES
 
 
 class WellFeatures:
-    """Per-well feature bundle, computed once and reused by every model."""
+    """Per-well feature bundle, computed once and reused by every model.
 
-    __slots__ = ("task", "ref", "gr", "geom", "prefix", "align", "_frame")
+    ``dip_alignment`` is opt-in and remains outside ``FEATURE_COLUMNS``.  It
+    exists for the isolated dip-constrained A/B model only, preserving the
+    current Ridge feature set exactly.
+    """
 
-    def __init__(self, task: InferenceTask, *, alignment: bool = True):
+    __slots__ = (
+        "task", "ref", "gr", "geom", "prefix", "align", "dip_align",
+        "typewell_gr_prefix_correlation", "_frame",
+    )
+
+    def __init__(
+        self,
+        task: InferenceTask,
+        *,
+        alignment: bool = True,
+        dip_alignment: bool = False,
+        alignment_cache=None,
+        cache_context: dict | None = None,
+    ):
         self.task = task
         self.ref = TypewellReference(task.tw_tvt, task.tw_gr)
         self.gr = gr_features(task)
+        self.typewell_gr_prefix_correlation = typewell_gr_prefix_correlation(
+            task,
+            self.ref,
+            self.gr["gr_z"],
+            gr_missing=self.gr["gr_is_missing"] > 0.5,
+        )
         self.geom = geometry_features(task)
         self.prefix = prefix_stats(task)
         if alignment:
@@ -530,7 +866,19 @@ class WellFeatures:
                 "align_gradient": np.zeros(n),
                 "_align_bias": 0.0,
                 "_align_ok": False,
+                "_align_gr_correlation": np.nan,
             }
+        if dip_alignment:
+            self.dip_align = cached_dip_constrained_alignment_features(
+                task,
+                self.ref,
+                self.gr["gr_z"],
+                gr_missing=self.gr["gr_is_missing"] > 0.5,
+                cache=alignment_cache,
+                cache_context=cache_context,
+            )
+        else:
+            self.dip_align = _empty_dip_alignment(task.n_rows, "not_requested")
         self._frame: pd.DataFrame | None = None
 
     @property
@@ -569,8 +917,26 @@ class WellFeatures:
         return self._frame.iloc[rows]
 
 
-def build_features(task: InferenceTask, *, alignment: bool = True) -> WellFeatures:
-    return WellFeatures(task, alignment=alignment)
+def build_features(
+    task: InferenceTask,
+    *,
+    alignment: bool = True,
+    dip_alignment: bool = False,
+    alignment_cache=None,
+    cache_context: dict | None = None,
+) -> WellFeatures:
+    """Build target-free features for one inference task.
+
+    The optional persistent cache applies solely to the dip-constrained
+    alignment track.  It stores no labels and keys on the simulated boundary.
+    """
+    return WellFeatures(
+        task,
+        alignment=alignment,
+        dip_alignment=dip_alignment,
+        alignment_cache=alignment_cache,
+        cache_context=cache_context,
+    )
 
 
 def validate_feature_frame(frame: pd.DataFrame) -> None:

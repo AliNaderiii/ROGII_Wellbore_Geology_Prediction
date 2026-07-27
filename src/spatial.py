@@ -262,6 +262,40 @@ class SpatialPrior:
             }
         )
 
+    def feature_diagnostics_for(self, task: InferenceTask) -> list[dict]:
+        """Report real validation-row support and variation per spatial column.
+
+        This method is deliberately observational: it calls the same
+        leave-one-well-out feature construction as Ridge, but does not expose
+        any donor labels outside the already-derived spatial feature frame.
+        """
+        frame = self.features_for(task)
+        rows: list[dict] = []
+        neighbour_support = pd.to_numeric(frame["nbr_n"], errors="coerce").to_numpy(dtype="float64") > 0
+        for column in SPATIAL_COLUMNS:
+            values = pd.to_numeric(frame[column], errors="coerce").to_numpy(dtype="float64")
+            finite = values[np.isfinite(values)]
+            # `nbr_grad_along` has an explicit zero fallback, so finite alone
+            # would incorrectly describe no-neighbour rows as populated.
+            if column == "nbr_n":
+                populated = values > 0
+            else:
+                populated = neighbour_support & np.isfinite(values)
+            observed = values[populated & np.isfinite(values)]
+            rows.append(
+                {
+                    "feature": column,
+                    "n_prediction_rows": int(values.size),
+                    "n_finite": int(finite.size),
+                    "n_populated": int(np.count_nonzero(populated)),
+                    "populated_fraction": float(np.mean(populated)) if values.size else np.nan,
+                    "n_unique_finite": int(np.unique(observed).size),
+                    "std_finite": float(np.std(observed)) if observed.size else np.nan,
+                    "non_constant": bool(np.unique(observed).size > 1),
+                }
+            )
+        return rows
+
     def describe(self) -> dict:
         return {
             "n_donor_wells": len(self.donor_ids),

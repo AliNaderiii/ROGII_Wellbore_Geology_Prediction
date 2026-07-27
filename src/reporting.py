@@ -35,34 +35,45 @@ def _md_table(df: pd.DataFrame, floatfmt: str = "{:.3f}") -> str:
 
 
 def spatial_ablation(summary: pd.DataFrame) -> pd.DataFrame:
-    """Pair each `<model>` with `<model>_spatial` and report the delta."""
-    gk = summary[summary["protocol"] == "groupkfold"]
+    """Pair each base model with its spatial variant, per protocol.
+
+    Protocols must never be collapsed or averaged.  The prior implementation
+    accidentally searched for the obsolete ``groupkfold`` label, silently
+    yielding an empty table for the canonical ``unseen_well`` protocol.
+    """
     rows = []
-    for _, base in gk[~gk["model"].str.endswith("_spatial")].iterrows():
-        sp = gk[gk["model"] == f"{base['model']}_spatial"]
-        if sp.empty:
+    if summary is None or summary.empty:
+        return pd.DataFrame()
+    for protocol, group in summary.groupby("protocol", sort=False):
+        if protocol == PROTOCOL_INVALID:
             continue
-        sp = sp.iloc[0]
-        rows.append(
-            {
-                "model": base["model"],
-                "global_rmse_without_spatial": base["global_rmse"],
-                "global_rmse_with_spatial": sp["global_rmse"],
-                "delta_global_rmse": sp["global_rmse"] - base["global_rmse"],
-                "pct_change": 100.0
-                * (sp["global_rmse"] - base["global_rmse"])
-                / base["global_rmse"]
-                if base["global_rmse"]
-                else np.nan,
-                "median_well_rmse_without_spatial": base["median_well_rmse"],
-                "median_well_rmse_with_spatial": sp["median_well_rmse"],
-                "worst10_without_spatial": base["worst10_well_rmse"],
-                "worst10_with_spatial": sp["worst10_well_rmse"],
-                "verdict": "spatial helps"
-                if sp["global_rmse"] < base["global_rmse"]
-                else "spatial does not help",
-            }
-        )
+        bases = group[~group["model"].str.endswith("_spatial")]
+        for _, base in bases.iterrows():
+            sp = group[group["model"] == f"{base['model']}_spatial"]
+            if sp.empty:
+                continue
+            sp = sp.iloc[0]
+            rows.append(
+                {
+                    "protocol": protocol,
+                    "model": base["model"],
+                    "global_rmse_without_spatial": base["global_rmse"],
+                    "global_rmse_with_spatial": sp["global_rmse"],
+                    "delta_global_rmse": sp["global_rmse"] - base["global_rmse"],
+                    "pct_change": 100.0
+                    * (sp["global_rmse"] - base["global_rmse"])
+                    / base["global_rmse"]
+                    if base["global_rmse"]
+                    else np.nan,
+                    "median_well_rmse_without_spatial": base["median_well_rmse"],
+                    "median_well_rmse_with_spatial": sp["median_well_rmse"],
+                    "worst10_without_spatial": base["worst10_well_rmse"],
+                    "worst10_with_spatial": sp["worst10_well_rmse"],
+                    "verdict": "spatial helps"
+                    if sp["global_rmse"] < base["global_rmse"]
+                    else "spatial does not help",
+                }
+            )
     return pd.DataFrame(rows)
 
 
