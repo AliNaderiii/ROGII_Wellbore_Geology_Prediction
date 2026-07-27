@@ -1,0 +1,9 @@
+fold,n_donor_wells,n_samples,k,radius_ft,donor_stride_rows,query_stride_rows,source,index,weighting,eps_ft,self_exclusion,n_validation_wells_excluded,protocol
+0,30,4683,12,6000.0,25,25,label,scipy.cKDTree,inverse distance 1/(d + eps),50.0,by well_id at query time + fold-train donors only,10,same_well_masked
+1,30,4853,12,6000.0,25,25,label,scipy.cKDTree,inverse distance 1/(d + eps),50.0,by well_id at query time + fold-train donors only,10,same_well_masked
+2,30,4926,12,6000.0,25,25,label,scipy.cKDTree,inverse distance 1/(d + eps),50.0,by well_id at query time + fold-train donors only,10,same_well_masked
+3,30,5011,12,6000.0,25,25,label,scipy.cKDTree,inverse distance 1/(d + eps),50.0,by well_id at query time + fold-train donors only,10,same_well_masked
+0,30,7612,12,6000.0,25,25,label,scipy.cKDTree,inverse distance 1/(d + eps),50.0,by well_id at query time + fold-train donors only,10,unseen_well
+1,30,7788,12,6000.0,25,25,label,scipy.cKDTree,inverse distance 1/(d + eps),50.0,by well_id at query time + fold-train donors only,10,unseen_well
+2,30,7816,12,6000.0,25,25,label,scipy.cKDTree,inverse distance 1/(d + eps),50.0,by well_id at query time + fold-train donors only,10,unseen_well
+3,30,7963,12,6000.0,25,25,label,scipy.cKDTree,inverse distance 1/(d + eps),50.0,by well_id at query time + fold-train donors only,10,unseen_well

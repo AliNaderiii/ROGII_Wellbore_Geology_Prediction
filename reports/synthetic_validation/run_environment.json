@@ -1,0 +1,45 @@
+{
+  "timestamp_utc": "2026-07-27T09:01:21.189025+00:00",
+  "label": "SYNTHETIC PIPELINE VERIFICATION ONLY",
+  "runtime_seconds": 153.98,
+  "peak_rss_mb": 232.4,
+  "python": "3.11.2",
+  "platform": "Linux-6.1.158+-x86_64-with-glibc2.36",
+  "cpu_count": 2,
+  "numpy": "2.4.6",
+  "pandas": "3.0.5",
+  "lightgbm_available": true,
+  "n_train_wells_discovered": 40,
+  "n_test_wells_discovered": 3,
+  "n_wells_validated": 40,
+  "n_points_evaluated": 97528,
+  "n_points_evaluated_all_model_protocol_pairs": 2412514,
+  "n_folds": 4,
+  "seed": 0,
+  "models": [
+    "hold_last",
+    "linear_extrap",
+    "geom_projection",
+    "gr_typewell_match",
+    "ncc_alignment",
+    "ridge",
+    "lightgbm"
+  ],
+  "protocols": [
+    "same_well_masked",
+    "unseen_well"
+  ],
+  "in_sample_diagnostic": true,
+  "spatial_enabled": true,
+  "blocked_well_ids": [
+    "000d7d20",
+    "00bbac68",
+    "00e12e8b"
+  ],
+  "blocked_wells_in_validation": 0,
+  "n_failures": 0,
+  "n_wells_skipped": 0,
+  "train_dir": "/tmp/rogii_synthetic/competition/train",
+  "test_dir": "/tmp/rogii_synthetic/competition/test",
+  "cross_fitted": true
+}

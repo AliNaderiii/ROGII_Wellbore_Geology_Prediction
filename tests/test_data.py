@@ -20,7 +20,7 @@ def test_discover_wells_train_and_test(mount):
     d = _data()
     train = d.discover_wells("train")
     test = d.discover_wells("test")
-    assert set(train) == {"TRW001", "TRW002", "TRW003", "TRW004", "TRW005"}
+    assert set(train) == {"TRW001", "TRW002", "TRW003", "TRW004", "TRW005", "TRW006", "TRW007", "TRW008", "TRW009"}
     assert set(test) == {"TSW001", "TSW002"}
     # no hardcoded ids: everything came off the filesystem
     assert all(w.horizontal is not None for w in train.values())
@@ -173,9 +173,9 @@ def test_long_hidden_suffix(mount):
 def test_iter_wells_streams_and_metadata_builds(mount):
     d = _data()
     ids = [w.well_id for w in d.iter_wells("train")]
-    assert ids == sorted(ids) and len(ids) == 5
+    assert ids == sorted(ids) and len(ids) == 9
     meta = d.well_metadata("train")
-    assert len(meta) == 5
+    assert len(meta) == 9
     assert {"well_id", "n_rows", "n_visible", "n_hidden", "gr_missing_frac"} <= set(meta.columns)
     assert d.well_metadata("train", limit=2).shape[0] == 2
 

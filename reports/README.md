@@ -1,33 +1,62 @@
 # reports/
 
-This directory holds **generated** audit output. It is intentionally almost
-empty in git: reports are produced from the mounted Kaggle data, and the
-competition data must not be redistributed.
+This directory holds both **authored** documents (tracked in git) and
+**generated** output (git-ignored, because it is derived from competition data
+that must not be redistributed).
 
-Run on Kaggle (or anywhere the mounts exist):
+## Tracked — authored, no competition data
+
+| File | Contents |
+|---|---|
+| `task_interpretation.md` | What the task is physically: TVT as a stratigraphic trajectory, the horizontal/typewell inverse problem, dip and azimuth, GR missingness, the metric |
+| `validation_protocol.md` | The validation design, **including §0 on why in-sample evaluation is invalid** |
+| `feature_manifest.csv` | Every feature's availability, target-derived status, decision and leakage risk. Generated from `src/manifest.py`, which also *enforces* it |
+| `decision_table.md` | Section 7 resource decisions (external artifacts etc.) |
+| `synthetic_validation/` | Harness-verification run on a **synthetic** field — banner-stamped, never a competition result |
+
+## Generated — git-ignored, written by the runner
 
 ```bash
-python scripts/run_all_audits.py
+python scripts/run_validation.py --n-splits 5 --spatial
 ```
 
-which writes:
+Writes to `REPORTS_DIR` (`/kaggle/working/reports` on Kaggle, `<repo>/reports`
+locally):
 
-| File | Section | Produced by |
-|---|---|---|
-| `input_inventory.md` | 1 | `audit_competition_data.py` |
-| `dataset_schema.csv` | 1 | `audit_competition_data.py` |
-| `well_summary.csv` | 1 | `audit_competition_data.py` |
-| `data_quality_initial.md` | 1 | `audit_competition_data.py` |
-| `task_presentation_summary.md` | 2 | `audit_task_presentation.py` |
-| `task_presentation_images/` | 2 | `audit_task_presentation.py` |
-| `sample_submission_audit.md` | 3 | `audit_submission.py` |
-| `koolbox_audit.md` | 4 | `audit_external_resources.py` |
-| `artifact_inventory.csv` | 5 | `audit_external_resources.py` |
-| `artifact_compatibility.md` | 5 | `audit_external_resources.py` |
-| `external_artifact_leakage_audit.md` | 6 | `audit_external_resources.py` |
-| `well_metadata.csv` | 8 | `run_all_audits.py` |
-| `pipeline_validation_issues.csv` | 8 | `run_all_audits.py` |
+| File | Contents |
+|---|---|
+| `validation_results.csv` | One row per (model, protocol): global / mean / median / P90 / worst-10 RMSE, well and point counts |
+| `well_level_validation.csv` | One row per (model, protocol, well) |
+| `stratified_validation.csv` | RMSE by hidden suffix length, GR missingness, prefix length |
+| `validation_failures.csv` | Every task, fit and predict failure |
+| `spatial_ablation.csv` | With vs. without offset-well features (`--spatial`) |
+| `spatial_construction.csv` | Per-fold donor counts and neighbour parameters (`--spatial`) |
+| `baseline_report.md` | The full narrative report |
+| `validation_protocol_run.md` | Parameters of that specific execution |
+| `run_environment.json` | Versions, runtime, peak memory, guard status |
+| `feature_manifest_verification.csv` | Manifest claims re-checked against the observed columns |
 
-`decision_table.md` (section 7) is hand-maintained and **is** tracked, because
-it records judgement calls rather than machine output. Update it after each
-audit run.
+Audit-phase outputs (`input_inventory.md`, `dataset_schema.csv`,
+`well_summary.csv`, `data_quality_initial.md`, `sample_submission_audit.md`,
+`koolbox_audit.md`, `artifact_inventory.csv`, `artifact_compatibility.md`,
+`external_artifact_leakage_audit.md`, `well_metadata.csv`,
+`pipeline_validation_issues.csv`) come from `scripts/run_all_audits.py`.
+
+## Real vs. synthetic
+
+The two are kept in **separate directories** so a synthetic figure can never be
+mistaken for a competition figure:
+
+- `reports/` — real runs. No banner.
+- `reports/synthetic_validation/` — synthetic runs. Every report begins with
+  `⚠️ SYNTHETIC PIPELINE VERIFICATION ONLY`, applied by the `--label` flag.
+
+## Preflight on the real mount
+
+```bash
+python scripts/run_validation.py --expect-train 773 --expect-test 3
+```
+
+Refuses to run unless discovery finds exactly the audited well counts, so a
+partial or misconfigured mount fails loudly instead of silently validating on
+a subset.
