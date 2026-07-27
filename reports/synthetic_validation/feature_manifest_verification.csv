@@ -1,0 +1,17 @@
+feature_name,claim_in_train,observed_in_train,claim_in_test,observed_in_test,agrees,decision
+MD,True,True,True,True,True,USE
+X,True,True,True,True,True,USE
+Y,True,True,True,True,True,USE
+Z,True,True,True,True,True,USE
+GR,True,True,True,True,True,USE
+TVT_input,True,True,True,True,True,USE_PREFIX_ONLY
+TVT,True,True,False,False,True,TARGET
+Typewell TVT,True,True,True,True,True,USE
+Typewell GR,True,True,True,True,True,USE
+Typewell Geology,True,False,True,False,False,USE_ALIGNMENT_ONLY
+ANCC,True,True,False,False,True,REJECT
+ASTNL,True,True,False,False,True,REJECT
+ASTNU,True,True,False,False,True,REJECT
+BUDA,True,True,False,False,True,REJECT
+EGFDL,True,True,False,False,True,REJECT
+EGFDU,True,True,False,False,True,REJECT

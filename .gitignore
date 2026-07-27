@@ -8,3 +8,15 @@ reports/*.md
 reports/task_presentation_images/
 !reports/decision_table.md
 !reports/README.md
+# Authored decision/methodology documents contain no competition data and ARE
+# tracked. Machine-generated metric tables (validation_results.csv,
+# well_level_validation.csv, baseline_report.md, ...) stay ignored: they are
+# derived from the competition wells and must not be redistributed.
+!reports/task_interpretation.md
+!reports/validation_protocol.md
+!reports/feature_manifest.csv
+# Output of the synthetic harness-verification run: no competition data, kept
+# as executable proof of what the real run produces.
+!reports/synthetic/
+!reports/synthetic/**
+

@@ -87,6 +87,16 @@ def mount(tmp_path: Path, monkeypatch) -> Path:
     write_well(train, "TRW004", _hw_frame(internal_gap=True, seed=4), _tw_frame())
     # 5. train well with no typewell
     write_well(train, "TRW005", _hw_frame(seed=5), None)
+    # 6-9. long train wells: prefixes big enough to host a masked suffix, which
+    #      is what the same-well masked protocol requires (>= 200 rows + mask).
+    #      Four of them, so GroupKFold can form non-empty folds in that mode.
+    for i, seed in enumerate((6, 7, 8, 9)):
+        write_well(
+            train,
+            f"TRW00{6 + i}",
+            _hw_frame(n=2000, prefix=1400, seed=seed),
+            _tw_frame(),
+        )
 
     # test wells: no target, no marker columns (mirrors the reported test schema)
     rows = []
@@ -102,11 +112,28 @@ def mount(tmp_path: Path, monkeypatch) -> Path:
     monkeypatch.setenv("ROGII_REPORTS_DIR", str(root / "working" / "reports"))
     monkeypatch.setenv("ROGII_REPO_ROOT", str(ROOT))
 
-    # src.paths caches module-level constants -> reload after patching env
+    # src.paths caches module-level constants -> reload after patching env.
+    # Order matters: modules are reloaded dependency-first so that classes
+    # defined in a reloaded module (e.g. WellFiles, InferenceTask) are the same
+    # objects the dependent modules hold references to. Reloading out of order
+    # produces two live copies of a class and confusing isinstance failures.
     import importlib
+
     import src.paths
     importlib.reload(src.paths)
-    for mod in ("src.data", "src.submission", "src.discovery"):
+    for mod in (
+        "src.discovery",
+        "src.columns",
+        "src.data",
+        "src.manifest",
+        "src.tasks",
+        "src.features",
+        "src.spatial",
+        "src.baselines",
+        "src.validation",
+        "src.reporting",
+        "src.submission",
+    ):
         if mod in sys.modules:
             importlib.reload(sys.modules[mod])
     return root
