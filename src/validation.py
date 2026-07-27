@@ -122,6 +122,63 @@ class WellResult:
     anchor_tvt: float
     has_typewell: bool
     predict_seconds: float
+    # Score-only metadata.  None of these values reaches a model matrix.
+    target_min: float = np.nan
+    target_max: float = np.nan
+    target_range: float = np.nan
+    scored_exact_suffix: bool = False
+    trajectory_curvature_deg_per_1000ft: float = np.nan
+    alignment_confidence_mean: float = np.nan
+    alignment_confidence_p10: float = np.nan
+    typewell_gr_correlation: float = np.nan
+    alignment_ok: bool | None = None
+    alignment_failure_reason: str = ""
+    alignment_cache_hit: bool | None = None
+    fallback_points: int = 0
+    fallback_fraction: float = np.nan
+    dip_fit_r2: float = np.nan
+
+
+def _trajectory_curvature_deg_per_1000ft(task) -> float:
+    """Mean change in 3-D tangent direction, reported in deg/1,000 ft.
+
+    This is a target-free trajectory diagnostic used only to explain error
+    tails.  Missing coordinates are linearly filled within the well, like the
+    established geometry feature construction.
+    """
+    # Reload-heavy test and notebook environments can hold two live
+    # WellTask class objects. Duck-typing keeps this target-free diagnostic
+    # robust without changing what it reads.
+    inp = task.inputs() if hasattr(task, "inputs") else task
+    if inp.n_rows < 3:
+        return np.nan
+    md = np.asarray(inp.md, dtype="float64")
+    xyz = np.column_stack([inp.x, inp.y, inp.z]).astype("float64")
+    for j in range(3):
+        v = xyz[:, j]
+        good = np.isfinite(v)
+        if not good.any():
+            return np.nan
+        xyz[:, j] = np.interp(np.arange(v.size), np.flatnonzero(good), v[good])
+    dxyz = np.diff(xyz, axis=0)
+    dmd = np.diff(md)
+    keep = np.isfinite(dmd) & (dmd > 1e-9)
+    if int(keep.sum()) < 2:
+        return np.nan
+    tangent = dxyz[keep] / dmd[keep, None]
+    norm = np.linalg.norm(tangent, axis=1)
+    good = norm > 1e-12
+    tangent = tangent[good] / norm[good, None]
+    dmd = dmd[keep][good]
+    if tangent.shape[0] < 2:
+        return np.nan
+    dots = np.clip(np.sum(tangent[1:] * tangent[:-1], axis=1), -1.0, 1.0)
+    angle = np.degrees(np.arccos(dots))
+    spacing = 0.5 * (dmd[1:] + dmd[:-1])
+    valid = np.isfinite(angle) & np.isfinite(spacing) & (spacing > 1e-9)
+    if not valid.any():
+        return np.nan
+    return float(np.mean(angle[valid] / spacing[valid]) * 1000.0)
 
 
 def score_well(
@@ -131,12 +188,16 @@ def score_well(
     task: WellTask,
     pred: np.ndarray,
     seconds: float,
+    diagnostics: dict | None = None,
 ) -> WellResult:
     truth = task.scored()
     sse, n = _se(pred, truth)
     d = np.asarray(pred, dtype="float64") - np.asarray(truth, dtype="float64")
     d = d[np.isfinite(d)]
+    finite_truth = np.asarray(truth, dtype="float64")
+    finite_truth = finite_truth[np.isfinite(finite_truth)]
     desc = task_descriptor(task)
+    diagnostics = diagnostics or {}
     return WellResult(
         model=model_name,
         protocol=protocol,
@@ -153,6 +214,20 @@ def score_well(
         anchor_tvt=float(desc["anchor_tvt"]),
         has_typewell=bool(desc["has_typewell"]),
         predict_seconds=float(seconds),
+        target_min=float(np.min(finite_truth)) if finite_truth.size else np.nan,
+        target_max=float(np.max(finite_truth)) if finite_truth.size else np.nan,
+        target_range=(float(np.max(finite_truth) - np.min(finite_truth)) if finite_truth.size else np.nan),
+        scored_exact_suffix=bool(n == task.inputs().n_predict),
+        trajectory_curvature_deg_per_1000ft=_trajectory_curvature_deg_per_1000ft(task),
+        alignment_confidence_mean=float(diagnostics.get("alignment_confidence_mean", np.nan)),
+        alignment_confidence_p10=float(diagnostics.get("alignment_confidence_p10", np.nan)),
+        typewell_gr_correlation=float(diagnostics.get("typewell_gr_correlation", np.nan)),
+        alignment_ok=diagnostics.get("alignment_ok"),
+        alignment_failure_reason=str(diagnostics.get("alignment_failure_reason", "")),
+        alignment_cache_hit=diagnostics.get("alignment_cache_hit"),
+        fallback_points=int(diagnostics.get("fallback_points", 0)),
+        fallback_fraction=float(diagnostics.get("fallback_fraction", np.nan)),
+        dip_fit_r2=float(diagnostics.get("dip_fit_r2", np.nan)),
     )
 
 
@@ -301,14 +376,23 @@ def evaluate_models(
     *,
     verbose: bool = False,
     failures: list | None = None,
+    alignment_cache=None,
+    cache_context: dict | None = None,
 ) -> list[WellResult]:
-    """Score every model on every task, sharing feature computation."""
+    """Score every model on every task, sharing target-free feature computation."""
     results: list[WellResult] = []
     need_align = any(getattr(m, "needs_alignment", False) for m in models.values())
+    need_dip_align = any(getattr(m, "needs_dip_alignment", False) for m in models.values())
     for task in tasks:
         inp = task.inputs()
         inp.assert_no_target()
-        feats = build_features(inp, alignment=need_align)
+        feats = build_features(
+            inp,
+            alignment=need_align,
+            dip_alignment=need_dip_align,
+            alignment_cache=alignment_cache,
+            cache_context=cache_context,
+        )
         for name, model in models.items():
             t0 = time.perf_counter()
             try:
@@ -332,7 +416,11 @@ def evaluate_models(
                     f"{name}/{task.well_id}: predicted {pred.size} rows, "
                     f"expected {inp.n_predict}"
                 )
-            results.append(score_well(name, protocol, fold, task, pred, dt))
+            try:
+                diagnostics = model.prediction_diagnostics(inp, feats, pred)
+            except Exception as exc:  # reporting must not discard a valid prediction
+                diagnostics = {"alignment_failure_reason": f"diagnostic_failed: {type(exc).__name__}"}
+            results.append(score_well(name, protocol, fold, task, pred, dt, diagnostics))
     return results
 
 
@@ -389,6 +477,7 @@ class ProtocolRun:
     fold_records: list = field(default_factory=list)
     failures: list = field(default_factory=list)
     spatial_notes: list = field(default_factory=list)
+    spatial_feature_notes: list = field(default_factory=list)
 
     @property
     def n_failures(self) -> int:
@@ -405,6 +494,8 @@ def run_cross_fitted_protocol(
     spatial_config: SpatialConfig | None = None,
     spatial_models: tuple[str, ...] = ("ridge", "lightgbm"),
     verbose: bool = False,
+    alignment_cache=None,
+    cache_context: dict | None = None,
 ) -> ProtocolRun:
     """Fit on fold-train wells, score on fold-validation wells. Never both.
 
@@ -443,9 +534,13 @@ def run_cross_fitted_protocol(
             )
 
         models = fit_models(factories, train_tasks, verbose=verbose, failures=run.failures)
+        fold_cache_context = {
+            **(cache_context or {}), "fold": fold.index, "protocol": protocol,
+        }
         run.well_results += evaluate_models(
             models, valid_tasks, protocol, fold.index,
             verbose=verbose, failures=run.failures,
+            alignment_cache=alignment_cache, cache_context=fold_cache_context,
         )
 
         # -- optional spatial variant, donors from fold-train wells only ----
@@ -460,9 +555,19 @@ def run_cross_fitted_protocol(
                     verbose=verbose, failures=run.failures,
                 )
                 sp_models = {f"{n}_spatial": m for n, m in sp_models.items()}
+                # Capture actual validation-row support before any model
+                # consumes it.  This proves whether spatial columns are
+                # populated and non-constant rather than inferring it from an
+                # RMSE delta alone.
+                for task in valid_tasks:
+                    for note in prior.feature_diagnostics_for(task.inputs()):
+                        run.spatial_feature_notes.append(
+                            {"protocol": protocol, "fold": fold.index, "well_id": task.well_id, **note}
+                        )
                 run.well_results += evaluate_models(
                     sp_models, valid_tasks, protocol, fold.index,
                     verbose=verbose, failures=run.failures,
+                    alignment_cache=alignment_cache, cache_context=fold_cache_context,
                 )
                 run.spatial_notes.append(
                     {"fold": fold.index, **prior.describe(),

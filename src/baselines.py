@@ -12,19 +12,21 @@ model physically cannot read the answer. Feature matrices additionally pass
 ``assert_safe_features`` before any learned model consumes them, so a
 train-only marker or the TVT column would raise rather than train.
 
-Implemented (and nothing else, per the plan):
+Implemented baselines plus one explicitly isolated controlled experiment:
 
-1. HoldLastTVT            — constant continuation of the anchor
-2. LinearExtrapolation     — anchor + fitted prefix slope * dMD
-3. GeometricProjection     — TVT + Z projection with a fitted dip response
-4. GRTypewellMatching      — per-row search for the best-matching typewell TVT
-5. NormalizedCrossCorrelation — windowed NCC alignment, bias-corrected
-6. RidgeBaseline           — ridge on the anchored residual
-7. LightGBMBaseline        — gradient boosting on the anchored residual
+1. HoldLastTVT                         — constant continuation of the anchor
+2. LinearExtrapolation                  — anchor + fitted prefix slope * dMD
+3. GeometricProjection                  — TVT + Z projection with a fitted dip response
+4. GRTypewellMatching                   — per-row search for the best-matching typewell TVT
+5. NormalizedCrossCorrelation           — windowed NCC alignment, bias-corrected
+6. RidgeBaseline                        — ridge on the anchored residual
+7. LightGBMBaseline                     — gradient boosting on the anchored residual
+8. DipConstrainedGRTypewellAlignment    — isolated GR/typewell A/B experiment
 
 Models 6-7 learn the *residual* TVT - tvt_last, so hold-last is exactly the
 zero prediction and any learned signal is an improvement over it by
-construction.
+construction.  Model 8 is intentionally not a Ridge feature or an ensemble:
+it is compared directly with the unchanged Ridge baseline.
 """
 from __future__ import annotations
 
@@ -61,6 +63,9 @@ class BaselineModel:
 
     name = "base"
     needs_alignment = False
+    # Separate from the established NCC-style alignment because the
+    # dip-constrained experiment must not change the Ridge feature matrix.
+    needs_dip_alignment = False
     uses_spatial = False
 
     def fit(self, tasks: list[WellTask], **kw) -> "BaselineModel":
@@ -68,6 +73,12 @@ class BaselineModel:
 
     def predict(self, task: InferenceTask, feats: WellFeatures | None = None) -> np.ndarray:
         raise NotImplementedError
+
+    def prediction_diagnostics(
+        self, task: InferenceTask, feats: WellFeatures | None, pred: np.ndarray
+    ) -> dict:
+        """Optional target-free prediction diagnostics for the report layer."""
+        return {}
 
     # -- helpers ----------------------------------------------------------
     @staticmethod
@@ -419,6 +430,72 @@ class NormalizedCrossCorrelation(BaselineModel):
         return self._clip_to_typewell(task, pred)
 
 
+# ----------------------------------- 6. isolated dip-constrained A/B model --
+
+
+@dataclass
+class DipConstrainedGRTypewellAlignment(BaselineModel):
+    """GR/typewell alignment constrained by visible-prefix apparent dip.
+
+    This is a direct, inference-safe continuation model, not an additional
+    Ridge feature and not an ensemble.  Its low-confidence or failed-match
+    fallback is the X/Y/Z + visible-`TVT_input` dip projection computed in
+    ``src.features``.  It never reads ``TVT``, a formation marker or Typewell
+    Geology.
+    """
+
+    min_confidence: float = 0.20
+    full_confidence: float = 0.65
+    name: str = field(default="dip_constrained_alignment", init=False)
+    needs_alignment: bool = field(default=False, init=False)
+    needs_dip_alignment: bool = field(default=True, init=False)
+
+    def predict(self, task, feats=None):
+        # Direct callers may have built the standard feature bundle before this
+        # experimental model was selected. Rebuild only in that case; the
+        # cross-fitted evaluator supplies the shared dip bundle directly.
+        if feats is None or feats.dip_align.get("failure_reason") == "not_requested":
+            feats = build_features(task, alignment=False, dip_alignment=True)
+        d = feats.dip_align
+        sl = slice(task.start, task.stop)
+        fallback = np.asarray(d["dip_prediction"][sl], dtype="float64")
+        fallback = np.where(np.isfinite(fallback), fallback, self._anchor(task))
+        if not d["ok"]:
+            return self._clip_to_typewell(task, fallback)
+
+        track = np.asarray(d["track"], dtype="float64")
+        boundary = track[task.start] if task.start < track.size else np.nan
+        if not np.isfinite(boundary):
+            return self._clip_to_typewell(task, fallback)
+        # Re-reference the GR correlation to the known boundary.  This admits
+        # GR/typewell *movement* but cannot carry a latent absolute TVT offset
+        # across Prediction Start.
+        aligned = self._anchor(task) + np.nan_to_num(track[sl] - boundary, nan=0.0)
+        confidence = np.asarray(d["confidence"][sl], dtype="float64")
+        denom = max(self.full_confidence - self.min_confidence, 1e-6)
+        weight = np.clip((confidence - self.min_confidence) / denom, 0.0, 1.0)
+        pred = weight * aligned + (1.0 - weight) * fallback
+        return self._clip_to_typewell(task, pred)
+
+    def prediction_diagnostics(self, task, feats, pred) -> dict:
+        if feats is None:
+            return {}
+        d = feats.dip_align
+        sl = slice(task.start, task.stop)
+        confidence = np.asarray(d["confidence"][sl], dtype="float64")
+        fallback = (not bool(d["ok"])) | (confidence < self.min_confidence)
+        return {
+            "alignment_confidence_mean": float(np.nanmean(confidence)) if confidence.size else np.nan,
+            "alignment_confidence_p10": float(np.nanquantile(confidence, 0.10)) if confidence.size else np.nan,
+            "alignment_ok": bool(d["ok"]),
+            "alignment_failure_reason": str(d["failure_reason"]),
+            "alignment_cache_hit": bool(d.get("cache_hit", False)),
+            "fallback_points": int(np.count_nonzero(fallback)),
+            "fallback_fraction": float(np.mean(fallback)) if confidence.size else np.nan,
+            "dip_fit_r2": float(d["dip_r2"]),
+        }
+
+
 # ----------------------------------------------------------- 6/7 learned ---
 
 
@@ -445,6 +522,25 @@ class _LearnedBaseline(BaselineModel):
             extra = self.spatial.features_for(task)
             X = pd.concat([X.reset_index(drop=True), extra.reset_index(drop=True)], axis=1)
         return X
+
+    def prediction_diagnostics(self, task, feats, pred) -> dict:
+        """Expose the existing GR/typewell alignment quality for error analysis.
+
+        This is reporting-only; it does not change Ridge's design matrix or
+        prediction.  ``align_score`` is the calibrated match discriminability
+        used by the established NCC feature, while the GR correlation is a
+        separate visible-prefix diagnostic.
+        """
+        if feats is None:
+            return {}
+        score = np.asarray(feats.align["align_score"][task.start : task.stop], dtype="float64")
+        return {
+            "alignment_confidence_mean": float(np.nanmean(score)) if score.size else np.nan,
+            "alignment_confidence_p10": float(np.nanquantile(score, 0.10)) if score.size else np.nan,
+            "alignment_ok": bool(feats.align.get("_align_ok", False)),
+            "alignment_failure_reason": "" if feats.align.get("_align_ok", False) else "ncc_alignment_unavailable",
+            "typewell_gr_correlation": float(feats.typewell_gr_prefix_correlation),
+        }
 
     def _training_arrays(self, tasks: list[WellTask]):
         Xs, ys, groups = [], [], []
@@ -604,6 +700,7 @@ BASELINES = {
     "geom_projection": GeometricProjection,
     "gr_typewell_match": GRTypewellMatching,
     "ncc_alignment": NormalizedCrossCorrelation,
+    "dip_constrained_alignment": DipConstrainedGRTypewellAlignment,
     "ridge": RidgeBaseline,
     "lightgbm": LightGBMBaseline,
 }
