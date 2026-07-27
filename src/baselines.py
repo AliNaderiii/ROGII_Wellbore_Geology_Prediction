@@ -29,6 +29,7 @@ construction.
 from __future__ import annotations
 
 import time
+import os
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -554,7 +555,22 @@ class LightGBMBaseline(_LearnedBaseline):
         if X is None:
             return self
         ds = lgb.Dataset(X, label=y, free_raw_data=True)
-        self.model = lgb.train(self.params, ds, num_boost_round=self.num_boost_round)
+        requested = os.environ.get("ROGII_LIGHTGBM_DEVICE", "cpu")
+        params = dict(self.params)
+        if requested == "gpu":
+            params["device_type"] = "gpu"
+        try:
+            self.model = lgb.train(params, ds, num_boost_round=self.num_boost_round)
+            self.execution_mode = requested
+            self.gpu_fallback_reason = ""
+        except Exception as exc:
+            if requested != "gpu":
+                raise
+            # Kaggle images often ship a CPU-only wheel. Retry transparently
+            # and retain the reason for the runtime report/log.
+            self.gpu_fallback_reason = f"LightGBM GPU unavailable: {type(exc).__name__}: {exc}"
+            self.model = lgb.train(self.params, ds, num_boost_round=self.num_boost_round)
+            self.execution_mode = "cpu_fallback"
         return self
 
     def predict(self, task, feats=None):
