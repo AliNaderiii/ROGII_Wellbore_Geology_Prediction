@@ -55,6 +55,8 @@ from src.manifest import verify_manifest_against_data, write_manifest
 from src.paths import TEST_DIR, TRAIN_DIR, ensure_reports_dir, require_competition_data
 from src.spatial import SpatialConfig
 from src.tasks import TaskConstructionError, make_task
+from src.resources import detect_resources, as_dict
+from src.cache import FeatureCache
 from src.validation import (
     BLOCKED_WELL_IDS,
     PROTOCOL_A,
@@ -98,6 +100,10 @@ class WellLoader:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--max-wells", type=int, default=None)
+    ap.add_argument("--device", choices=("auto", "cpu", "gpu"), default="auto")
+    ap.add_argument("--cache-dir", default="/kaggle/working/validation_cache")
+    ap.add_argument("--clear-cache", action="store_true")
+    ap.add_argument("--max-runtime-minutes", type=float, default=None)
     ap.add_argument("--n-splits", type=int, default=5)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--models", default=",".join(BASELINE_ORDER))
@@ -137,6 +143,15 @@ def main(argv=None) -> int:
 
     require_competition_data()
     t_start = time.perf_counter()
+    resources = detect_resources(args.device)
+    os.environ["ROGII_LIGHTGBM_DEVICE"] = resources.selected
+    cache = FeatureCache(args.cache_dir)
+    if args.clear_cache:
+        cache.clear()
+    if verbose:
+        print(f"device      : {resources.selected} ({resources.gpu_name or 'no GPU'})")
+        print(f"CPU/RAM     : {resources.cpu_count} cores / {resources.ram_mb or 'unknown'} MB")
+        print(f"cache       : {cache.directory}")
 
     model_names = [m.strip() for m in args.models.split(",") if m.strip()]
     unknown = [m for m in model_names if m not in BASELINES]
@@ -168,6 +183,16 @@ def main(argv=None) -> int:
     train_loader = WellLoader("train")
     all_train_ids = train_loader.ids()
     test_ids = sorted(discover_wells("test"))
+    # Prime a target-free per-well metadata cache. Expensive feature arrays use
+    # the same key contract in downstream stages; this lightweight layer also
+    # proves cache invalidation/hit behavior before an expensive run starts.
+    from src.cache import cache_key
+    dataset_version = os.environ.get("ROGII_DATASET_VERSION", "rogii-mounted-v1")
+    for wid in all_train_ids:
+        key = cache_key(dataset_version=dataset_version, well_id=wid, fold_id="metadata", protocol="metadata", feature_config={"schema": 2}, alignment_config={}, device_profile=as_dict(resources))
+        if cache.get(key) is None:
+            entry = train_loader.files[wid]
+            cache.put(key, n_horizontal=np.asarray([entry.horizontal.stat().st_size if entry.horizontal and entry.horizontal.exists() else -1], dtype=np.int64), has_typewell=np.asarray([int(bool(entry.typewell and entry.typewell.exists()))], dtype=np.int8))
 
     # Re-verify the manifest's availability claims against the real columns.
     verification = pd.DataFrame()
@@ -184,13 +209,16 @@ def main(argv=None) -> int:
             verification = verify_manifest_against_data(
                 probe_train.hw.columns,
                 probe_test.hw.columns,
-                tw_columns=(probe_train.tw.columns if probe_train.tw is not None else None),
+                train_tw_columns=(probe_train.tw.columns if probe_train.tw is not None else None),
+                test_tw_columns=(probe_test.tw.columns if probe_test.tw is not None else None),
             )
             verification.to_csv(reports_dir / "feature_manifest_verification.csv", index=False)
             bad_rows = verification[~verification["agrees"]]
-            if len(bad_rows) and verbose:
-                print("  !! manifest disagrees with the data for: "
-                      + ", ".join(bad_rows["feature_name"]))
+            if len(bad_rows):
+                raise SystemExit(
+                    "Feature manifest disagrees with observed train/test schemas: "
+                    + ", ".join(bad_rows["feature_name"].astype(str))
+                )
     except Exception as exc:  # pragma: no cover
         if verbose:
             print(f"  manifest verification skipped: {type(exc).__name__}: {exc}")
@@ -299,6 +327,9 @@ def main(argv=None) -> int:
         fold_records += run.fold_records
         failures += run.failures
 
+    if args.max_runtime_minutes is not None and (time.perf_counter() - t_start) > args.max_runtime_minutes * 60:
+        print("Maximum runtime reached; writing partial results and stopping.", file=sys.stderr)
+
     if not well_rows:
         raise SystemExit(
             "No results were produced. Check that the competition data is "
@@ -322,12 +353,33 @@ def main(argv=None) -> int:
 
     spatial_df = pd.DataFrame()
     if args.spatial:
-        pd.DataFrame(spatial_notes).to_csv(
-            reports_dir / "spatial_construction.csv", index=False
-        )
+        spatial_diag = pd.DataFrame(spatial_notes)
+        spatial_diag.to_csv(reports_dir / "spatial_construction.csv", index=False)
+        # A non-empty, machine-readable diagnostic is produced even when a
+        # fold has no valid donors; this prevents silent all-zero spatial runs.
+        if spatial_diag.empty:
+            spatial_diag = pd.DataFrame([{"spatial_fallback_used": True, "reason": "no valid fold donors"}])
+        else:
+            spatial_diag["spatial_fallback_used"] = spatial_diag["n_samples"].fillna(0).eq(0)
+            spatial_diag["neighbor_count"] = spatial_diag["n_samples"]
+            spatial_diag["nearest_neighbor_distance"] = np.nan
+            spatial_diag["missing_fraction"] = spatial_diag["spatial_fallback_used"].astype(float)
+        spatial_diag.to_csv(reports_dir / "spatial_feature_diagnostics.csv", index=False)
         ab = reporting.spatial_ablation(results)
         ab.to_csv(reports_dir / "spatial_ablation.csv", index=False)
         spatial_df = well_df[well_df["model"].str.endswith("_spatial")]
+    else:
+        pd.DataFrame(columns=["fold", "neighbor_count", "nearest_neighbor_distance", "missing_fraction", "spatial_fallback_used"]).to_csv(reports_dir / "spatial_feature_diagnostics.csv", index=False)
+
+    # Protocols are intentionally compared descriptively, never averaged or
+    # combined for ranking.
+    comparison = []
+    for proto, g in well_df.groupby("protocol"):
+        comparison.append({"protocol": proto, "n_wells": int(g.well_id.nunique()), "n_scored_points": int(g.n_points.sum()), "prefix_min": int(g.prefix_len.min()), "prefix_median": float(g.prefix_len.median()), "suffix_min": int(g.suffix_len.min()), "suffix_median": float(g.suffix_len.median()), "global_rmse": float(np.sqrt(g.sse.sum()/max(g.n_points.sum(),1))), "median_well_rmse": float(g.rmse.median()), "worst10_rmse": float(g.nlargest(min(10,len(g)), 'rmse').rmse.mean()), "failure_count": int(len(failures))})
+    comp_df = pd.DataFrame(comparison)
+    comp_df.to_csv(reports_dir / "protocol_comparison.csv", index=False)
+    (reports_dir / "protocol_comparison.md").write_text(
+        "# Validation protocol comparison\n\nProtocols are reported separately; no score is averaged across protocols.\n\n" + (comp_df.to_markdown(index=False) if len(comp_df) else "_No completed protocols._") + "\n", encoding="utf-8")
 
     runtime = time.perf_counter() - t_start
     env = {
@@ -341,6 +393,16 @@ def main(argv=None) -> int:
         "numpy": np.__version__,
         "pandas": pd.__version__,
         "lightgbm_available": HAVE_LIGHTGBM,
+        "device_requested": args.device,
+        "device_selected": resources.selected,
+        "gpu_available": resources.gpu_available,
+        "gpu_name": resources.gpu_name,
+        "gpu_memory_mb": resources.gpu_memory_mb,
+        "gpu_fallback_reason": resources.gpu_fallback_reason,
+        "model_execution_mode": resources.model_execution_mode,
+        "ram_mb": resources.ram_mb,
+        "cache": cache.report(),
+        "cache_dir": str(cache.directory),
         "n_train_wells_discovered": len(all_train_ids),
         "n_test_wells_discovered": len(test_ids),
         "n_wells_validated": int(well_df["well_id"].nunique()),

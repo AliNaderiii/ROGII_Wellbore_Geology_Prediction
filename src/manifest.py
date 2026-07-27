@@ -740,7 +740,8 @@ def _decision_of(name: str) -> str:
 # --------------------------------------------------------------------------
 
 def verify_manifest_against_data(
-    train_columns, test_columns, *, tw_columns=None
+    train_columns, test_columns, *, tw_columns=None,
+    train_tw_columns=None, test_tw_columns=None
 ) -> pd.DataFrame:
     """Re-check the manifest's availability claims against observed columns.
 
@@ -750,9 +751,14 @@ def verify_manifest_against_data(
     """
     train = {canonical(c) for c in train_columns}
     test = {canonical(c) for c in test_columns}
-    if tw_columns is not None:
-        train |= {f"Typewell {canonical(c)}" for c in tw_columns}
-        test |= {f"Typewell {canonical(c)}" for c in tw_columns}
+    # Typewell schemas are independently observed: using the train schema for
+    # both sides was the source of a false Typewell Geology disagreement.
+    if train_tw_columns is None and test_tw_columns is None:
+        train_tw_columns = test_tw_columns = tw_columns
+    if train_tw_columns is not None:
+        train |= {f"Typewell {canonical(c)}" for c in train_tw_columns}
+    if test_tw_columns is not None:
+        test |= {f"Typewell {canonical(c)}" for c in test_tw_columns}
 
     rows = []
     for spec in MANIFEST:
