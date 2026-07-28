@@ -85,6 +85,10 @@ Both read the prefix exclusively. Neither can see the hidden region.
 
 ## 3. GR-based stratigraphic alignment
 
+**Post-ablation status:** the established implementation remains available for
+diagnostics, but its four columns are not part of default Ridge because they
+failed the real cross-protocol promotion rule.
+
 Alignment is what a geosteerer does by hand: slide the lateral's GR response
 along the type section until the wiggles line up.
 
@@ -181,6 +185,9 @@ as `surface − Z`), which is exactly why the real-mount run is the one that
 decides — see the caveat in §10.
 
 ## 6. Offset-well spatial priors
+
+**Post-ablation status:** retained as an opt-in diagnostic, removed from the
+default Ridge after worsening both real validation protocols.
 
 Geological structure is spatially correlated. Two wells 500 ft apart on the
 same pad penetrate nearly the same surface. So a well's TVT at map position
@@ -291,12 +298,16 @@ is, because that determines what the next model should do.
 - **Geometry** (`GeometricProjection`) uses `dZ`, which is genuinely known past
   the boundary. It is cheap, robust, and independent of GR — so it is the
   correct fallback for the 145 GR-poor wells.
-- **GR alignment** is the only family that ingests new information inside the
-  hidden region. It should therefore dominate at long suffix lengths *provided*
-  GR is present, and must be gated on confidence where it is not.
-- **Learned models** (ridge, LightGBM) do not replace the physics; they arbitrate
-  between it. Their most valuable input is `align_score`, because that is what
-  lets them learn *when to trust the correlation*.
+- **GR path methods** are the only family that ingests new stratigraphic
+  information inside the hidden region. That is a physical motivation, not
+  evidence of predictive value: the completed real 770-well ablation showed
+  that the established alignment columns did not improve Ridge under both
+  protocols, so they are no longer default features.
+- **Learned models** (Ridge, LightGBM) can arbitrate between physical signals,
+  but every proposed signal must still beat the no-alignment/no-spatial Ridge
+  under leakage-safe validation. Particle Filter and Beam Search therefore
+  enter only as diagnostic features with explicit confidence and fallback
+  columns, not as replacement predictors.
 
 **One caveat on the synthetic numbers.** The end-to-end results produced in
 this sandbox come from a synthetic field (`scripts/make_synthetic_field.py`),
@@ -314,5 +325,6 @@ harness violated this in the masked protocol and reported a LightGBM RMSE of
 0.062 that was pure memorisation. The in-sample diagnostic retained in
 `reports/validation_protocol.md` §0 measures that illusion at roughly **30×**
 for LightGBM and **1.0×** for the parameter-free baselines — capacity is
-exactly what gets inflated. No baseline may be called competitive on anything
-but Protocol B.
+exactly what gets inflated. No baseline may be promoted without Protocol B,
+and the current pre-registered feature rule additionally requires improvement
+under Protocol A rather than averaging the protocols together.

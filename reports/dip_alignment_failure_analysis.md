@@ -477,15 +477,16 @@ model's failure.
 
 ## 11. Ablation: Ridge with and without alignment and spatial features
 
-Four branches through the **existing, unmodified** Ridge model. Branch B is the
-current baseline and every delta is taken against it. All branches share the
-same folds, are cross-fitted by well ID, and are scored on the identical well
-set within each protocol.
+Four branches through the same Ridge implementation. Branch B was the
+historical reference and every completed-run delta was taken against it; the
+real decision selected branch A as the new default. All branches share the same
+folds, are cross-fitted by well ID, and are scored on the identical well set
+within each protocol.
 
 | Branch | Alignment features | Spatial features |
 |---|---|---|
-| **A** `ridge_no_align` | no | no |
-| **B** `ridge_baseline` (reference) | **yes** | no |
+| **A** `ridge_no_align` (**selected default**) | no | no |
+| **B** `ridge_baseline` (historical reference) | **yes** | no |
 | **C** `ridge_spatial_only` | no | yes |
 | **D** `ridge_align_spatial` | yes | yes |
 
@@ -516,31 +517,23 @@ against branch B, plus `real_ablation_preflight.md` (the per-branch leakage
 check) and `real_ablation_run_environment.json` (runtime, peak RSS, cache
 statistics, device, well counts).
 
-### Status of the ablation numbers — NOT YET RUN ON REAL DATA
+### Status of the ablation numbers — COMPLETED ON 770 REAL WELLS
 
-The A/B/C/D ablation **has not been run against the real 770-well mount.** The
-Kaggle mount is not present in this environment: `/kaggle/input/...` does not
-exist, there is no network access, and no Kaggle credentials are configured.
-Every attempt to reach the data was made and is recorded.
+The run owner completed the real A/B/C/D experiment. Global point-level RMSE:
 
-Rather than quote a number that was not computed, the runner is delivered,
-both required command forms are verified to execute end to end, and this
-section will be completed from the real run's output.
+| Protocol | A: no alignment/spatial | B: alignment | C: spatial | D: both |
+|---|---:|---:|---:|---:|
+| `same_well_masked` | **29.486** | 29.452 | 29.569 | 29.531 |
+| `unseen_well` | **14.423** | 14.441 | 14.582 | 14.580 |
 
-**The banner is enforced in code, not by convention.**
-`src.real_ablation_reporting.is_real_run` grants the `REAL KAGGLE VALIDATION`
-header only when the discovered counts match the audited mount exactly (773
-train wells, 770 eligible). Any other run — synthetic, partial, subset — is
-stamped `SYNTHETIC — NOT A COMPETITION RESULT` instead. A synthetic run
-therefore *cannot* be mislabelled as real, even by passing the wrong flag,
-and `test_synthetic_run_is_never_labelled_real` asserts it.
+Under the pre-registered cross-protocol rule, alignment is removed from the
+next default because it does not improve both protocols. Spatial is removed
+because it worsens both. The selected default is A. Both implementations remain
+available behind explicit diagnostic flags. See
+`reports/real_770_ablation_decision.md` for the applied decision.
 
-The synthetic verification output is in `reports/synthetic_ablation/` and is
-banner-stamped. **Those figures are not competition results** — the synthetic
-generator constructs `TVT = surface − Z` by definition, which distorts exactly
-the geometric relationships under test here. They establish only that the
-harness runs, that the branches are paired and cross-fitted, and that the
-verdict logic fires.
+The synthetic verification output in `reports/synthetic_ablation/` remains
+banner-stamped and is not competition evidence.
 
 ### Pre-registered decision rule
 
@@ -574,8 +567,9 @@ The rule and its tolerance are unit-tested against synthetic fixtures covering
 keep, remove, one-protocol-only, tail-degradation and worst-well-only cases, so
 the decision logic is verified independently of any data.
 
-**Until the real ablation runs, the Ridge baseline stays exactly as it is.**
-No synthetic result is authority to add or remove a feature.
+**Applied result:** the default Ridge now excludes alignment and spatial
+features. Their implementations remain available only through explicit opt-in
+diagnostics; no synthetic result was used to make this decision.
 
 ---
 

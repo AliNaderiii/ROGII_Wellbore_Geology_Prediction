@@ -12,6 +12,8 @@ that must not be redistributed).
 | `validation_protocol.md` | The validation design, **including §0 on why in-sample evaluation is invalid** |
 | `feature_manifest.csv` | Every feature's availability, target-derived status, decision and leakage risk. Generated from `src/manifest.py`, which also *enforces* it |
 | `decision_table.md` | Section 7 resource decisions (external artifacts etc.) |
+| `real_770_ablation_decision.md` | Completed real 770-well A/B/C/D decision: default Ridge has no alignment or spatial features |
+| `particle_beam_protocol.md` | Target-free, fold-scoped PF/Beam feature protocol and 100-real-well run contract |
 | `synthetic_validation/` | Harness-verification run on a **synthetic** field — banner-stamped, never a competition result |
 
 ## Generated — git-ignored, written by the runner
@@ -41,6 +43,9 @@ locally):
 | `worst_wells_real.csv` | Top-20 Ridge wells **within each protocol**, never a combined rank (`--real-analysis`) |
 | `spatial_ablation_real.md` | Per-protocol spatial Ridge A/B plus actual population/non-constant diagnostics (`--real-analysis`) |
 | `dip_constrained_alignment_ablation.csv`, `dip_constrained_alignment_real.md` | Isolated Ridge vs dip-constrained GR/typewell A/B with confidence/failure/fallback counts (`--dip-alignment-experiment`) |
+| `particle_beam_results.csv`, `particle_beam_wells.csv` | Paired Ridge A/B/C/D comparison for opt-in PF/Beam features (`--particle-filter --beam-search`) |
+| `particle_beam_diagnostics.csv`, `particle_beam_failures.csv` | Per-well confidence, branch spread, smoothness, fallback/cache status and explicit failures |
+| `particle_beam_ablation.md`, `particle_beam_run_environment.json` | Narrative comparison and reproducibility/runtime record; never a submission |
 
 Audit-phase outputs (`input_inventory.md`, `dataset_schema.csv`,
 `well_summary.csv`, `data_quality_initial.md`, `sample_submission_audit.md`,

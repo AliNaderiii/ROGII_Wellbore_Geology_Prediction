@@ -1,13 +1,12 @@
 """Ridge alignment/spatial feature ablation — a 2x2 factorial, per protocol.
 
-Four branches are fitted and scored through the *existing* Ridge model. No
-new model is introduced and the shipped baseline is not modified: branch B is
-byte-for-byte the current Ridge feature set, and the other branches are
-reached only through the explicit ``alignment_features`` switch and the
-existing fold-train-only spatial prior.
+Four branches are fitted and scored through the *existing* Ridge model. This
+module preserves the historical 2x2 experiment: branch B was its pre-decision
+reference, while branch A is the default selected after the completed real
+770-well run. Implementations remain reachable through explicit switches.
 
-    A  ridge_no_align            alignment features removed, no spatial
-    B  ridge_baseline            current Ridge baseline (reference)
+    A  ridge_no_align            selected default, no alignment or spatial
+    B  ridge_baseline            former alignment baseline (historical reference)
     C  ridge_spatial_only        alignment features removed, + spatial
     D  ridge_align_spatial       alignment features + spatial
 
@@ -15,7 +14,8 @@ Every branch is cross-fitted by well ID under both protocols, using the same
 folds, so the four numbers within a protocol are paired. Protocols are never
 averaged together.
 
-Deltas are reported against branch B, the current Ridge baseline.
+Historical deltas remain reported against branch B so completed artifacts stay
+comparable; branch A is now the production default.
 """
 from __future__ import annotations
 
@@ -47,8 +47,8 @@ BASELINE_BRANCH = BRANCH_B
 BRANCH_ORDER = (BRANCH_A, BRANCH_B, BRANCH_C, BRANCH_D)
 
 BRANCH_LABELS = {
-    BRANCH_A: "A. Ridge without alignment features",
-    BRANCH_B: "B. Ridge with alignment features (current baseline)",
+    BRANCH_A: "A. Ridge without alignment/spatial features (selected default)",
+    BRANCH_B: "B. Ridge with alignment features (former baseline)",
     BRANCH_C: "C. Ridge with spatial features",
     BRANCH_D: "D. Ridge with alignment and spatial features",
 }

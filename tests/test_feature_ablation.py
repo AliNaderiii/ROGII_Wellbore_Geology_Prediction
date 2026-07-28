@@ -1,9 +1,8 @@
 """Ridge alignment/spatial feature ablation: wiring, pairing and the verdict.
 
-These tests assert the ablation is a *valid* comparison — same folds, same
-Ridge model, cross-fitted, protocols kept separate, branch B identical to the
-shipped baseline — not that any particular branch wins. The winner is a
-property of the data and is reported, never asserted.
+These tests assert the historical ablation is a *valid* comparison — same
+folds, same Ridge model and protocols kept separate — and that its completed
+selection is now the no-alignment default. The implementation remains opt-in.
 """
 from __future__ import annotations
 
@@ -51,8 +50,8 @@ def test_dropping_alignment_features_removes_exactly_those_four():
     assert narrow == [c for c in full if c not in set(features.ALIGNMENT_FEATURES)]
 
 
-def test_ridge_defaults_to_the_current_baseline_matrix(mount):
-    """Constructing Ridge with no argument must reproduce the baseline exactly."""
+def test_ridge_defaults_to_real_770_well_selected_matrix(mount):
+    """The post-ablation default excludes alignment; opt-in restores it."""
     features = _mod("features")
     baselines = _mod("baselines")
     data = _mod("data")
@@ -63,13 +62,13 @@ def test_ridge_defaults_to_the_current_baseline_matrix(mount):
     feats = features.build_features(inp)
 
     default = baselines.BASELINES["ridge"]()
-    assert default.alignment_features is True
-    assert list(default._features(inp, feats).columns) == list(features.FEATURE_COLUMNS)
-
-    narrow = baselines.BASELINES["ridge"](alignment_features=False)
-    cols = list(narrow._features(inp, feats).columns)
+    assert default.alignment_features is False
+    cols = list(default._features(inp, feats).columns)
     assert cols == features.feature_columns(alignment_features=False)
     assert not (set(features.ALIGNMENT_FEATURES) & set(cols))
+
+    opt_in = baselines.BASELINES["ridge"](alignment_features=True)
+    assert list(opt_in._features(inp, feats).columns) == list(features.FEATURE_COLUMNS)
 
 
 def test_narrow_ridge_still_fits_and_predicts(mount):
@@ -365,7 +364,7 @@ def test_ablation_report_is_written_from_per_well_rows(tmp_path):
         "alignment_spatial_ablation.md",
     } == written
     text = (tmp_path / "alignment_spatial_ablation.md").read_text()
-    assert "current Ridge baseline" in text
+    assert "former Ridge baseline" in text
     assert "Keep" in text
     assert "never averaged" in text
 

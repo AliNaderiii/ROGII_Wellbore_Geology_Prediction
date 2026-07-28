@@ -545,7 +545,7 @@ def write_real_analysis(reports_dir: str | Path) -> list[Path]:
         alignment_md = root / "dip_constrained_alignment_real.md"
         alignment_md.write_text(
             "# Dip-Constrained GR/Typewell Alignment — controlled A/B\n\n"
-            "This is a direct alignment model compared only with the unchanged Ridge baseline, "
+            "This is a direct alignment diagnostic compared only with its Ridge reference, "
             "under each protocol independently. It uses horizontal GR, Typewell GR/TVT reference, "
             "MD/X/Y/Z and visible `TVT_input`; it does not use the `TVT` label, Typewell Geology, "
             "formation markers, external artifacts, Ridge stacking, Particle Filter, Beam Search, "
@@ -612,8 +612,8 @@ def write_alignment_spatial_ablation(reports_dir: str | Path) -> list[Path]:
     )
     lines = [
         "# Ridge alignment / spatial feature ablation\n",
-        "A 2x2 factorial run through the **existing** Ridge model. Branch B is the current, "
-        "unmodified Ridge baseline and every delta is taken against it. All four branches share "
+        "A 2x2 factorial run through the **existing** Ridge model. Branch B is the former "
+        "baseline and historical delta reference; the real decision selected branch A. All four branches share "
         "the same folds and are cross-fitted by well ID; the two protocols are reported "
         "separately and never averaged.\n",
         "| branch | alignment features | spatial features |\n|---|---|---|\n"
@@ -623,7 +623,7 @@ def write_alignment_spatial_ablation(reports_dir: str | Path) -> list[Path]:
             for b in BRANCH_ORDER
         )
         + "\n",
-        "## Delta against the current Ridge baseline\n",
+        "## Historical delta against the former Ridge baseline (branch B)\n",
         _md_table(summary.drop(columns=["label"], errors="ignore")),
         "Only wells scored by every branch within a protocol enter the comparison, so a branch "
         "cannot look better by having dropped a hard well.\n",

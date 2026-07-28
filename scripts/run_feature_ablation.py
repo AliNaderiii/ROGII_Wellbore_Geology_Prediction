@@ -6,14 +6,14 @@
 
 Branches, all fitted through the **existing** Ridge model:
 
-    A  ridge_no_align         alignment features removed, no spatial
-    B  ridge_baseline         the current Ridge baseline (delta reference)
-    C  ridge_spatial_only     alignment features removed, + spatial
-    D  ridge_align_spatial    alignment features + spatial
+    A  ridge_no_align         selected default, no alignment/spatial
+    B  ridge_baseline         former alignment baseline (historical delta reference)
+    C  ridge_spatial_only     alignment removed, + spatial
+    D  ridge_align_spatial    alignment + spatial
 
-The shipped Ridge baseline is not modified: branch B uses exactly
-``FEATURE_COLUMNS``, and the narrower branches are reached only through the
-explicit ``alignment_features=False`` switch added for this ablation.
+This runner preserves the completed experiment's branch identities and branch-B
+delta reference. The real 770-well decision subsequently selected branch A as
+the default; alignment and spatial remain explicit diagnostics.
 
 Both protocols (``same_well_masked`` and ``unseen_well``) are always run and
 are never averaged together. Outputs (into REPORTS_DIR):
@@ -339,7 +339,7 @@ def main(argv=None) -> int:
         print(f"cache: {cache.stats.hits} hits / {cache.stats.misses} misses / "
               f"{cache.stats.writes} writes")
         print(f"failures: {len(failures_df)}")
-        print("\nDelta vs the current Ridge baseline (branch B):")
+        print("\nHistorical delta vs the former Ridge baseline (branch B):")
         cols = ["protocol", "branch", "n_wells", "global_rmse", "delta_global_rmse_vs_baseline"]
         print(summary[cols].to_string(index=False))
         print("\nAlignment-feature contrasts:")

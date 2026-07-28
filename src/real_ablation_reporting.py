@@ -396,8 +396,9 @@ def write_real_ablation_reports(
         banner,
         "# Real alignment / spatial ablation — summary\n",
         "Four Ridge configurations, cross-fitted by well ID, both protocols reported "
-        "separately and **never averaged**. Branch B is the current, unmodified Ridge "
-        "baseline and every delta is taken against it.\n",
+        "separately and **never averaged**. Branch B is the experiment's former Ridge "
+        "reference and every historical delta is taken against it; the completed real "
+        "decision selected branch A as the new default.\n",
         "| branch | alignment features | spatial features |\n|---|---|---|\n"
         + "\n".join(
             f"| {BRANCH_LABELS[b]} | {'yes' if BRANCH_SPEC[b][0] else 'no'} | "
