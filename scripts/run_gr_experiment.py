@@ -37,6 +37,7 @@ from src.validation import (
 from src.particle_filter import ParticleFilterFeatureGenerator, PathFeatureOutput
 from src.beam_search import BeamSearchFeatureGenerator
 from src.cache import FeatureCache
+from src.real_ablation_reporting import get_provenance_metadata, is_real_run
 
 
 # ------------------------------------------------------------- Imputation Options --
@@ -234,18 +235,52 @@ class GatedPFBeamResidualModel(BaselineModel):
 
 def main():
     print("Initializing GR-quality bottleneck and gated residual experiment...")
-    out_dir = Path("reports/synthetic_gr_experiment")
-    out_dir.mkdir(parents=True, exist_ok=True)
     
-    # Establish competition root
-    comp_root = os.environ.get("ROGII_COMPETITION_ROOT", "/tmp/rogii_synthetic/competition")
-    print(f"Competition root: {comp_root}")
-    
-    # 1. Discover all wells
+    # Discover all wells (both train and test)
     well_files = discover_wells("train")
+    test_files = discover_wells("test")
     universe = filter_blocked(sorted(well_files))
     assert_no_blocked_wells(universe, context="GR quality experiment")
-    print(f"Discovered {len(universe)} eligible wells.")
+    
+    from src.paths import TRAIN_DIR, TEST_DIR
+    # Gather provenance metadata to dynamically verify if this is a real or synthetic run
+    env_meta = get_provenance_metadata(
+        discovered_train_ids=list(well_files.keys()),
+        discovered_test_ids=list(test_files.keys()),
+        train_dir_str=str(TRAIN_DIR),
+        test_dir_str=str(TEST_DIR),
+    )
+    
+    real_run_verified = is_real_run(env_meta)
+    
+    if real_run_verified:
+        print("REAL KAGGLE VALIDATION detected. Strict checks PASSED.")
+        out_dir = Path("reports")
+        gr_quality_filename = "gr_quality_real.csv"
+        gr_imputation_filename = "gr_imputation_ablation.csv"
+        gated_pf_beam_filename = "gated_pf_beam_ablation.csv"
+        gr_analysis_filename = "gr_quality_analysis.md"
+        gated_model_filename = "gated_model_decision.md"
+        well_level_filename = "well_level_gr_experiment.csv"
+        banner_block = "> # REAL KAGGLE VALIDATION\n>\n" \
+                       "> Computed from the real ROGII competition mount (773 train wells discovered, " \
+                       "770 eligible after excluding the three visible public test wells).\n\n"
+    else:
+        print("SYNTHETIC run detected. Strict checks FAILED or run in a non-Kaggle sandbox.")
+        out_dir = Path("reports/synthetic_gr_experiment")
+        gr_quality_filename = "gr_quality_synthetic.csv"
+        gr_imputation_filename = "gr_imputation_ablation.csv"
+        gated_pf_beam_filename = "gated_pf_beam_ablation.csv"
+        gr_analysis_filename = "gr_quality_analysis.md"
+        gated_model_filename = "gated_model_decision.md"
+        well_level_filename = "well_level_gr_experiment.csv"
+        banner_block = "> # SYNTHETIC — NOT A REAL KAGGLE COMPETITION RESULT\n>\n" \
+                       "> **This is not a competition result.** The discovered well counts do not match " \
+                       "the audited real mount. These files were produced by the harness against a synthetic " \
+                       "field to verify that it runs, and their numbers must not be quoted as validation results.\n\n"
+                       
+    out_dir.mkdir(parents=True, exist_ok=True)
+    print(f"Output directory: {out_dir}")
     
     # Pre-load all wells into memory once to eliminate nested loop disk I/O bottlenecks
     print("Pre-loading all wells into memory to eliminate disk I/O bottlenecks...")
@@ -319,9 +354,9 @@ def main():
         })
         
     gr_quality_df = pd.DataFrame(gr_rows)
-    gr_quality_df.to_csv(out_dir / "gr_quality_synthetic.csv", index=False)
+    gr_quality_df.to_csv(out_dir / gr_quality_filename, index=False)
     gr_quality_df.set_index("well_id", inplace=True)
-    print(f"GR quality report built and saved to {out_dir / 'gr_quality_synthetic.csv'}")
+    print(f"GR quality report built and saved to {out_dir / gr_quality_filename}")
     
     # 3. Setup Cross-fitting and GroupKFold
     folds = make_group_folds(universe, n_splits=5, seed=0)
@@ -509,27 +544,24 @@ def main():
     
     # Save the ablation reports
     imputation_ablation = df_global[df_global["model"].isin(["ridge_default", "ridge_imputed_gr"])].copy()
-    imputation_ablation["data_source"] = "synthetic"
-    imputation_ablation.to_csv(out_dir / "gr_imputation_ablation.csv", index=False)
+    imputation_ablation["data_source"] = env_meta["data_source"]
+    imputation_ablation.to_csv(out_dir / gr_imputation_filename, index=False)
     
     # Save reports/gated_pf_beam_ablation.csv
     gated_ablation = df_global[df_global["model"].isin(["ridge_default", "gated_pf_beam"])].copy()
-    gated_ablation["data_source"] = "synthetic"
-    gated_ablation.to_csv(out_dir / "gated_pf_beam_ablation.csv", index=False)
+    gated_ablation["data_source"] = env_meta["data_source"]
+    gated_ablation.to_csv(out_dir / gated_pf_beam_filename, index=False)
     
     # Save all well results combined for summary
     df_res_with_source = df_res.copy()
-    df_res_with_source["data_source"] = "synthetic"
-    df_res_with_source.to_csv(out_dir / "well_level_gr_experiment.csv", index=False)
+    df_res_with_source["data_source"] = env_meta["data_source"]
+    df_res_with_source.to_csv(out_dir / well_level_filename, index=False)
     
     # --- Generate gr_quality_analysis.md ---
-    with open(out_dir / "gr_quality_analysis.md", "w") as f:
-        f.write("> # SYNTHETIC — NOT A REAL KAGGLE COMPETITION RESULT\n>\n")
-        f.write("> **This is not a competition result.** The discovered well counts do not match ")
-        f.write("the audited real mount. These files were produced by the harness against a synthetic ")
-        f.write("field to verify that it runs, and their numbers must not be quoted as validation results.\n\n")
+    with open(out_dir / gr_analysis_filename, "w") as f:
+        f.write(banner_block)
         
-        f.write("# Per-Well Gamma Ray (GR) Quality Bottleneck Analysis (SYNTHETIC)\n\n")
+        f.write("# Per-Well Gamma Ray (GR) Quality Bottleneck Analysis\n\n")
         f.write("This report presents the findings of our systematic analysis of the GR quality bottleneck and target-free imputation strategies over 770 wells.\n\n")
         
         f.write("## 1. GR Quality Summary Stats\n")
@@ -554,16 +586,13 @@ def main():
         f.write("## 4. Well Improvement Summary\n\n")
         f.write(df_well_comp.to_markdown(index=False) + "\n")
         
-    print(f"{out_dir / 'gr_quality_analysis.md'} written successfully.")
+    print(f"{out_dir / gr_analysis_filename} written successfully.")
     
     # --- Generate gated_model_decision.md ---
-    with open(out_dir / "gated_model_decision.md", "w") as f:
-        f.write("> # SYNTHETIC — NOT A REAL KAGGLE COMPETITION RESULT\n>\n")
-        f.write("> **This is not a competition result.** The discovered well counts do not match ")
-        f.write("the audited real mount. These files were produced by the harness against a synthetic ")
-        f.write("field to verify that it runs, and their numbers must not be quoted as validation results.\n\n")
+    with open(out_dir / gated_model_filename, "w") as f:
+        f.write(banner_block)
         
-        f.write("# Gated PF/Beam Model Evaluation and Promotion Decision (SYNTHETIC)\n\n")
+        f.write("# Gated PF/Beam Model Evaluation and Promotion Decision\n\n")
         f.write("We evaluated the confidence-gated PF/Beam residual model under both cross-fitted validation protocols.\n\n")
         
         f.write("## 1. Gated PF/Beam Ablation Results\n\n")
@@ -590,7 +619,7 @@ def main():
         f.write("- **Low Confidence / Fallback Rate**: The PF/Beam confidence was generally low (often <= 0.20) in segments with significant gaps or high noise. The fallback rate is approximately 99%.\n")
         f.write("- **Robustness**: Enforcing a strict confidence gate prevents the model from trusting poor or ambiguous alignment trajectories, protecting the default Ridge predictions on difficult wells.\n")
         
-    print(f"{out_dir / 'gated_model_decision.md'} written successfully.")
+    print(f"{out_dir / gated_model_filename} written successfully.")
     
     total_runtime = time.time() - t_start_global
     print(f"\nGR Quality Controlled Experiment completed in {total_runtime:.1f} seconds.")

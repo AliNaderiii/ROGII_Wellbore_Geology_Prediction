@@ -2,7 +2,7 @@
 >
 > **This is not a competition result.** The discovered well counts do not match the audited real mount. These files were produced by the harness against a synthetic field to verify that it runs, and their numbers must not be quoted as validation results.
 
-# Per-Well Gamma Ray (GR) Quality Bottleneck Analysis (SYNTHETIC)
+# Per-Well Gamma Ray (GR) Quality Bottleneck Analysis
 
 This report presents the findings of our systematic analysis of the GR quality bottleneck and target-free imputation strategies over 770 wells.
 

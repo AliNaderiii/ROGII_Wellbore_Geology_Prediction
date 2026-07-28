@@ -2,7 +2,7 @@
 >
 > **This is not a competition result.** The discovered well counts do not match the audited real mount. These files were produced by the harness against a synthetic field to verify that it runs, and their numbers must not be quoted as validation results.
 
-# Gated PF/Beam Model Evaluation and Promotion Decision (SYNTHETIC)
+# Gated PF/Beam Model Evaluation and Promotion Decision
 
 We evaluated the confidence-gated PF/Beam residual model under both cross-fitted validation protocols.
 
