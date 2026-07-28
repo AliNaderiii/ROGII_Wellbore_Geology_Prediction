@@ -14,10 +14,15 @@ bootstrap-level field as unavailable rather than fabricating it.
 Outputs (into ``--reports-dir``, default ``REPORTS_DIR``):
 
     pf_beam_real_decision.md
+    pf_beam_failure_analysis.md
     pf_beam_paired_well_deltas.csv
     pf_beam_fold_deltas.csv
     pf_beam_bootstrap_ci.csv
-    pf_beam_failure_analysis.md
+    particle_beam_fold_deltas.csv      (alias of pf_beam_fold_deltas.csv)
+    particle_beam_bootstrap_ci.csv     (alias of pf_beam_bootstrap_ci.csv)
+
+The validation runner also writes ``particle_beam_wells.csv`` (the per-well
+input this analyzer consumes).
 """
 from __future__ import annotations
 

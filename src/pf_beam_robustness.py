@@ -985,6 +985,10 @@ def write_robustness_reports(
     else:
         folds.to_csv(fold_csv, index=False)
     written.append(fold_csv)
+    # Alias requested by the robustness brief (same bytes as pf_beam_*).
+    fold_alias = root / "particle_beam_fold_deltas.csv"
+    fold_alias.write_bytes(fold_csv.read_bytes())
+    written.append(fold_alias)
 
     # ---- 3. bootstrap CI ------------------------------------------------
     boot_csv = root / "pf_beam_bootstrap_ci.csv"
@@ -1030,6 +1034,9 @@ def write_robustness_reports(
         )
         boot.to_csv(boot_csv, index=False)
     written.append(boot_csv)
+    boot_alias = root / "particle_beam_bootstrap_ci.csv"
+    boot_alias.write_bytes(boot_csv.read_bytes())
+    written.append(boot_alias)
 
     # Optional supporting tables (not in the required five, but useful).
     if not summary.empty:

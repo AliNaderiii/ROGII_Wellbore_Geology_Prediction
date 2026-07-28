@@ -33,6 +33,8 @@ reports/task_presentation_images/
 !reports/pf_beam_paired_well_deltas.csv
 !reports/pf_beam_fold_deltas.csv
 !reports/pf_beam_bootstrap_ci.csv
+!reports/particle_beam_fold_deltas.csv
+!reports/particle_beam_bootstrap_ci.csv
 !reports/pf_beam_owner_aggregates.csv
 !reports/pf_beam_decision.json
 # Synthetic harness verification of the ablation runner. No competition data:

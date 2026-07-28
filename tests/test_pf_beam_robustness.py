@@ -311,6 +311,8 @@ def test_write_reports_owner_only(tmp_path):
         "pf_beam_fold_deltas.csv",
         "pf_beam_bootstrap_ci.csv",
         "pf_beam_failure_analysis.md",
+        "particle_beam_fold_deltas.csv",
+        "particle_beam_bootstrap_ci.csv",
     }
     assert required <= written
 
@@ -358,6 +360,8 @@ def test_write_reports_with_wells(tmp_path):
     assert "pf_beam_fold_deltas.csv" in names
     assert "pf_beam_bootstrap_ci.csv" in names
     assert "pf_beam_failure_analysis.md" in names
+    assert "particle_beam_fold_deltas.csv" in names
+    assert "particle_beam_bootstrap_ci.csv" in names
 
     paired = pd.read_csv(tmp_path / "pf_beam_paired_well_deltas.csv")
     assert len(paired) == 50  # 25 wells x 2 protocols
