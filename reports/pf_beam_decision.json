@@ -1,0 +1,29 @@
+{
+  "candidate": "ridge_particle_beam",
+  "fallback": "ridge_default",
+  "keep_as_next_candidate": false,
+  "use_as_final": false,
+  "preserve_default_fallback": true,
+  "delete_pf_beam_code": false,
+  "owner_only_aggregates": true,
+  "reasons": [
+    "Owner-supplied global RMSE only: unseen_well delta -0.004 (14.423 \u2192 14.419); same_well_masked delta -0.098 (29.486 \u2192 29.388).",
+    "Per-well table was not available in this checkout, so fold stability, paired bootstrap CI, improved/degraded well counts, and concentration cannot be verified.",
+    "Under the pre-registered rule, ridge_particle_beam is NOT kept as the next candidate until those robustness checks pass on the cross-fitted well-level artifact.",
+    "ridge_default remains the default and the fallback. PF/Beam code is retained. No final submission is authorised."
+  ],
+  "protocol_notes": {
+    "unseen_well": {
+      "global_delta": -0.0039999999999995595,
+      "stable_across_folds": null,
+      "paired_ci_ok": null,
+      "not_concentrated": null
+    },
+    "same_well_masked": {
+      "global_delta": -0.09799999999999898,
+      "stable_across_folds": null,
+      "paired_ci_ok": null,
+      "not_concentrated": null
+    }
+  }
+}

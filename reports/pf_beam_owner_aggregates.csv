@@ -1,0 +1,9 @@
+source,validation,protocol,model,n_wells,n_failures,global_rmse,delta_vs_default
+owner_aggregate,REAL KAGGLE VALIDATION,unseen_well,ridge_default,770,0,14.423,0.0
+owner_aggregate,REAL KAGGLE VALIDATION,unseen_well,ridge_particle_filter,770,0,14.429,0.006000000000000227
+owner_aggregate,REAL KAGGLE VALIDATION,unseen_well,ridge_beam_search,770,0,14.432,0.009000000000000341
+owner_aggregate,REAL KAGGLE VALIDATION,unseen_well,ridge_particle_beam,770,0,14.419,-0.0039999999999995595
+owner_aggregate,REAL KAGGLE VALIDATION,same_well_masked,ridge_default,770,0,29.486,0.0
+owner_aggregate,REAL KAGGLE VALIDATION,same_well_masked,ridge_particle_filter,770,0,29.406,-0.08000000000000185
+owner_aggregate,REAL KAGGLE VALIDATION,same_well_masked,ridge_beam_search,770,0,29.406,-0.08000000000000185
+owner_aggregate,REAL KAGGLE VALIDATION,same_well_masked,ridge_particle_beam,770,0,29.388,-0.09799999999999898

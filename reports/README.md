@@ -14,6 +14,9 @@ that must not be redistributed).
 | `decision_table.md` | Section 7 resource decisions (external artifacts etc.) |
 | `real_770_ablation_decision.md` | Completed real 770-well A/B/C/D decision: default Ridge has no alignment or spatial features |
 | `particle_beam_protocol.md` | Target-free, fold-scoped PF/Beam feature protocol and 100-real-well run contract |
+| `pf_beam_real_decision.md` | Robustness decision for `ridge_particle_beam` vs `ridge_default` (owner aggregates + rule) |
+| `pf_beam_failure_analysis.md` | Paired-error / failure analysis; separates real, synthetic, and public-LB evidence |
+| `pf_beam_paired_well_deltas.csv`, `pf_beam_fold_deltas.csv`, `pf_beam_bootstrap_ci.csv` | Paired well/fold/bootstrap tables (or UNAVAILABLE placeholders when well-level artifacts are absent) |
 | `synthetic_validation/` | Harness-verification run on a **synthetic** field — banner-stamped, never a competition result |
 
 ## Generated — git-ignored, written by the runner
@@ -46,6 +49,7 @@ locally):
 | `particle_beam_results.csv`, `particle_beam_wells.csv` | Paired Ridge A/B/C/D comparison for opt-in PF/Beam features (`--particle-filter --beam-search`) |
 | `particle_beam_diagnostics.csv`, `particle_beam_failures.csv` | Per-well confidence, branch spread, smoothness, fallback/cache status and explicit failures |
 | `particle_beam_ablation.md`, `particle_beam_run_environment.json` | Narrative comparison and reproducibility/runtime record; never a submission |
+| `pf_beam_real_decision.md`, `pf_beam_failure_analysis.md`, `pf_beam_*_{deltas,ci}.csv` | Post-run paired-error robustness (`scripts/analyze_pf_beam_robustness.py`); no retrain |
 
 Audit-phase outputs (`input_inventory.md`, `dataset_schema.csv`,
 `well_summary.csv`, `data_quality_initial.md`, `sample_submission_audit.md`,
