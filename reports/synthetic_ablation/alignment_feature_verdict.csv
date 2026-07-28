@@ -1,0 +1,5 @@
+protocol,contrast,spatial_context,global_rmse_without_alignment,global_rmse_with_alignment,delta_global_rmse,alignment_features_help
+same_well_masked,ridge_baseline - ridge_no_align,no_spatial,2.1215343944916585,2.1381099374547268,0.01657554296306829,False
+same_well_masked,ridge_align_spatial - ridge_spatial_only,with_spatial,2.1081253922413814,2.1380391785939596,0.029913786352578242,False
+unseen_well,ridge_baseline - ridge_no_align,no_spatial,1.7914369883452055,1.6938784694649531,-0.09755851888025235,True
+unseen_well,ridge_align_spatial - ridge_spatial_only,with_spatial,1.6326619042174708,1.6539116404576686,0.02124973624019777,False

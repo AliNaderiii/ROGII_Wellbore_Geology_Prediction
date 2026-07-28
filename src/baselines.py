@@ -42,6 +42,7 @@ from src.features import (
     WellFeatures,
     build_features,
     calibrate_gr_to_reference,
+    feature_columns,
     validate_feature_frame,
 )
 from src.tasks import InferenceTask, WellTask
@@ -499,25 +500,39 @@ class DipConstrainedGRTypewellAlignment(BaselineModel):
 # ----------------------------------------------------------- 6/7 learned ---
 
 
-def _design_matrix(feats: WellFeatures, task: InferenceTask) -> pd.DataFrame:
+def _design_matrix(
+    feats: WellFeatures,
+    task: InferenceTask,
+    *,
+    alignment_features: bool = True,
+) -> pd.DataFrame:
     frame = feats.frame()
+    if not alignment_features:
+        frame = frame[feature_columns(alignment_features=False)]
     validate_feature_frame(frame)
     return frame
 
 
 class _LearnedBaseline(BaselineModel):
-    """Shared plumbing: build X/y on the anchored residual, then fit."""
+    """Shared plumbing: build X/y on the anchored residual, then fit.
+
+    ``alignment_features`` defaults to ``True``, which is the shipped
+    baseline's exact design matrix.  It exists so the ablation can construct a
+    no-alignment-feature branch without editing the baseline; nothing in the
+    normal run path passes ``False``.
+    """
 
     max_rows_per_well = 400
 
-    def __init__(self, *, spatial: "object | None" = None):
+    def __init__(self, *, spatial: "object | None" = None, alignment_features: bool = True):
         self.spatial = spatial
         self.feature_names_: list[str] = []
         self.uses_spatial = spatial is not None
+        self.alignment_features = bool(alignment_features)
 
     def _features(self, task: InferenceTask, feats: WellFeatures | None) -> pd.DataFrame:
         feats = feats if feats is not None else build_features(task, alignment=self.needs_alignment)
-        X = _design_matrix(feats, task)
+        X = _design_matrix(feats, task, alignment_features=self.alignment_features)
         if self.spatial is not None:
             extra = self.spatial.features_for(task)
             X = pd.concat([X.reset_index(drop=True), extra.reset_index(drop=True)], axis=1)
@@ -579,8 +594,8 @@ class RidgeBaseline(_LearnedBaseline):
     name = "ridge"
     needs_alignment = True
 
-    def __init__(self, alpha: float = 10.0, *, spatial=None):
-        super().__init__(spatial=spatial)
+    def __init__(self, alpha: float = 10.0, *, spatial=None, alignment_features: bool = True):
+        super().__init__(spatial=spatial, alignment_features=alignment_features)
         self.alpha = alpha
         self.model = None
         self.medians_: pd.Series | None = None
@@ -621,8 +636,8 @@ class LightGBMBaseline(_LearnedBaseline):
     name = "lightgbm"
     needs_alignment = True
 
-    def __init__(self, *, spatial=None, **params):
-        super().__init__(spatial=spatial)
+    def __init__(self, *, spatial=None, alignment_features: bool = True, **params):
+        super().__init__(spatial=spatial, alignment_features=alignment_features)
         self.params = {
             "objective": "regression",
             "metric": "rmse",

@@ -152,6 +152,9 @@ def mount(tmp_path: Path, monkeypatch) -> Path:
         "src.baselines",
         "src.validation",
         "src.reporting",
+        "src.model_status",
+        "src.ablation",
+        "src.real_reporting",
         "src.submission",
     ):
         if mod in sys.modules:

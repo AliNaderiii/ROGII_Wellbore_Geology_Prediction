@@ -32,8 +32,44 @@ python scripts/smoke_test_loader.py        # data-loader smoke test (loads, neve
 python -m src.submission --submission submission.csv \
   --sample-submission /kaggle/input/competitions/rogii-wellbore-geology-prediction/sample_submission.csv
 python scripts/smoke_test_loader.py --expect-train 773 --expect-test 3 --full-scan
-python -m pytest tests -q                  # 59 tests, synthetic fixtures only
+python scripts/run_feature_ablation.py     # A/B/C/D Ridge feature ablation
+python scripts/diagnose_dip_alignment.py   # dip-alignment failure diagnostics
+python -m pytest tests -q                  # 285 tests, synthetic fixtures only
 ```
+
+### Real A/B/C/D ablation on Kaggle
+
+```bash
+# 1. 100-well pass: validate runtime, memory and output shape
+python scripts/run_feature_ablation.py \
+  --n-splits 5 --max-wells 100 \
+  --cache-dir /kaggle/working/feature_ablation_cache \
+  --reports-dir /kaggle/working/feature_ablation_reports
+
+# 2. full run: all 770 eligible wells (773 discovered - 3 public test wells)
+python scripts/run_feature_ablation.py \
+  --n-splits 5 --expect-wells 770 \
+  --cache-dir /kaggle/working/feature_ablation_cache \
+  --reports-dir /kaggle/working/feature_ablation_reports
+```
+
+CLI: `--max-wells --n-splits --cache-dir --reports-dir --device --clear-cache
+--spatial/--no-spatial --spatial-k --spatial-radius --branches --expect-wells
+--seed --label --quiet`.
+
+**Report naming is evidence-based.** `real_*` filenames and the
+`REAL KAGGLE VALIDATION` banner are emitted **only** when the discovered well
+counts match the audited mount exactly (773 train / 770 eligible), as decided
+by `src.real_ablation_reporting.is_real_run`. Any other run — synthetic,
+partial or `--max-wells` subset — writes `synthetic_*` files banner-stamped
+`SYNTHETIC — NOT A COMPETITION RESULT`. A file named `real_*` in this
+repository is therefore always a real competition result.
+
+A per-branch leakage preflight (`src/ablation_preflight.py`) runs before any
+model is fitted and aborts the run on failure. It walks every design-matrix
+column back to its raw roots through the manifest, so TVT, a formation marker
+or Typewell Geology cannot pass even when reached transitively via a derived
+feature.
 
 From a Kaggle Notebook cell:
 
@@ -124,3 +160,18 @@ tests/             pytest suite + synthetic fixtures (conftest.py)
 7. The 3 visible test wells are for pipeline validation only — never tune on
    them.
 5. Enforce ANCC→ASTNU→ASTNL→EGFDU→EGFDL→BUDA ordering in post-processing.
+
+## Model promotion status
+
+`src/model_status.py` is the single source of truth for whether a model may
+enter a final predictor or an ensemble branch. Nothing is approved by default:
+an unlisted model is `CANDIDATE`, never `APPROVED`.
+
+| Model | Status | Evidence |
+|---|---|---|
+| `dip_constrained_alignment` | **REJECTED** | Real 770-well run, both protocols: +248.202 RMSE (`same_well_masked`), +82.104 RMSE (`unseen_well`) vs Ridge |
+
+`assert_not_rejected()` raises on any attempt to route a rejected model into a
+final/ensemble path; rejection does **not** block running the model as a
+diagnostic, so the failure stays reproducible. The full analysis is in
+`reports/dip_alignment_failure_analysis.md`.
