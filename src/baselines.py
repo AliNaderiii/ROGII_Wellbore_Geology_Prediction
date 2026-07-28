@@ -25,8 +25,9 @@ Implemented baselines plus one explicitly isolated controlled experiment:
 
 Models 6-7 learn the *residual* TVT - tvt_last, so hold-last is exactly the
 zero prediction and any learned signal is an improvement over it by
-construction.  Model 8 is intentionally not a Ridge feature or an ensemble:
-it is compared directly with the unchanged Ridge baseline.
+construction. Model 8 is intentionally not a Ridge feature or an ensemble and
+remains REJECTED. The default Ridge excludes alignment and spatial features
+following the completed real 770-well decision.
 """
 from __future__ import annotations
 
@@ -514,48 +515,85 @@ def _design_matrix(
 
 
 class _LearnedBaseline(BaselineModel):
-    """Shared plumbing: build X/y on the anchored residual, then fit.
+    """Shared plumbing for anchored-residual learned models.
 
-    ``alignment_features`` defaults to ``True``, which is the shipped
-    baseline's exact design matrix.  It exists so the ablation can construct a
-    no-alignment-feature branch without editing the baseline; nothing in the
-    normal run path passes ``False``.
+    Alignment, spatial, Particle Filter and Beam Search capabilities are all
+    optional.  Particle/Beam objects implement ``generate(InferenceTask)`` and
+    return target-free feature frames; neither is a prediction model.
     """
 
     max_rows_per_well = 400
 
-    def __init__(self, *, spatial: "object | None" = None, alignment_features: bool = True):
+    def __init__(
+        self,
+        *,
+        spatial: "object | None" = None,
+        alignment_features: bool = True,
+        particle_filter: "object | None" = None,
+        beam_search: "object | None" = None,
+    ):
         self.spatial = spatial
+        self.particle_filter = particle_filter
+        self.beam_search = beam_search
         self.feature_names_: list[str] = []
         self.uses_spatial = spatial is not None
         self.alignment_features = bool(alignment_features)
+        # Instance-level override prevents the validation harness from doing
+        # the removed alignment work for the new default Ridge.
+        self.needs_alignment = bool(alignment_features)
+        self._path_diagnostics: dict[str, dict] = {}
 
     def _features(self, task: InferenceTask, feats: WellFeatures | None) -> pd.DataFrame:
         feats = feats if feats is not None else build_features(task, alignment=self.needs_alignment)
         X = _design_matrix(feats, task, alignment_features=self.alignment_features)
+        self._path_diagnostics = {}
+        if self.particle_filter is not None:
+            output = self.particle_filter.generate(task)
+            self._path_diagnostics["particle"] = dict(output.diagnostics)
+            X = pd.concat(
+                [X.reset_index(drop=True), output.frame.reset_index(drop=True)], axis=1
+            )
+        if self.beam_search is not None:
+            output = self.beam_search.generate(task)
+            self._path_diagnostics["beam"] = dict(output.diagnostics)
+            X = pd.concat(
+                [X.reset_index(drop=True), output.frame.reset_index(drop=True)], axis=1
+            )
         if self.spatial is not None:
             extra = self.spatial.features_for(task)
             X = pd.concat([X.reset_index(drop=True), extra.reset_index(drop=True)], axis=1)
+        # Re-check after optional generators are appended. Unknown columns,
+        # horizontal TVT, hidden TVT_input and train-only geology all fail here.
+        validate_feature_frame(X)
         return X
 
     def prediction_diagnostics(self, task, feats, pred) -> dict:
-        """Expose the existing GR/typewell alignment quality for error analysis.
-
-        This is reporting-only; it does not change Ridge's design matrix or
-        prediction.  ``align_score`` is the calibrated match discriminability
-        used by the established NCC feature, while the GR correlation is a
-        separate visible-prefix diagnostic.
-        """
-        if feats is None:
-            return {}
-        score = np.asarray(feats.align["align_score"][task.start : task.stop], dtype="float64")
-        return {
-            "alignment_confidence_mean": float(np.nanmean(score)) if score.size else np.nan,
-            "alignment_confidence_p10": float(np.nanquantile(score, 0.10)) if score.size else np.nan,
-            "alignment_ok": bool(feats.align.get("_align_ok", False)),
-            "alignment_failure_reason": "" if feats.align.get("_align_ok", False) else "ncc_alignment_unavailable",
-            "typewell_gr_correlation": float(feats.typewell_gr_prefix_correlation),
-        }
+        """Expose target-free alignment/path quality to the report layer."""
+        out: dict = {}
+        if feats is not None and self.alignment_features:
+            score = np.asarray(
+                feats.align["align_score"][task.start : task.stop], dtype="float64"
+            )
+            out.update(
+                {
+                    "alignment_confidence_mean": float(np.nanmean(score)) if score.size else np.nan,
+                    "alignment_confidence_p10": float(np.nanquantile(score, 0.10)) if score.size else np.nan,
+                    "alignment_ok": bool(feats.align.get("_align_ok", False)),
+                    "alignment_failure_reason": "" if feats.align.get("_align_ok", False) else "ncc_alignment_unavailable",
+                    "typewell_gr_correlation": float(feats.typewell_gr_prefix_correlation),
+                }
+            )
+        for prefix in ("particle", "beam"):
+            d = self._path_diagnostics.get(prefix)
+            if not d:
+                continue
+            for key in (
+                "confidence_mean", "confidence_p10", "branch_spread_mean",
+                "branch_spread_p90", "path_smoothness", "fallback_status",
+                "fallback_fraction", "failure_reason", "cache_hit",
+            ):
+                out[f"{prefix}_{key}"] = d.get(key)
+        return out
 
     def _training_arrays(self, tasks: list[WellTask]):
         Xs, ys, groups = [], [], []
@@ -589,13 +627,31 @@ class _LearnedBaseline(BaselineModel):
 
 @dataclass(init=False)
 class RidgeBaseline(_LearnedBaseline):
-    """Ridge regression on the anchored residual."""
+    """Ridge regression on the anchored residual.
+
+    The real 770-well pre-registered ablation selected the target-free,
+    non-spatial, non-alignment matrix as the default.  Every removed capability
+    remains available only through an explicit constructor/CLI opt-in.
+    """
 
     name = "ridge"
-    needs_alignment = True
+    needs_alignment = False
 
-    def __init__(self, alpha: float = 10.0, *, spatial=None, alignment_features: bool = True):
-        super().__init__(spatial=spatial, alignment_features=alignment_features)
+    def __init__(
+        self,
+        alpha: float = 10.0,
+        *,
+        spatial=None,
+        alignment_features: bool = False,
+        particle_filter=None,
+        beam_search=None,
+    ):
+        super().__init__(
+            spatial=spatial,
+            alignment_features=alignment_features,
+            particle_filter=particle_filter,
+            beam_search=beam_search,
+        )
         self.alpha = alpha
         self.model = None
         self.medians_: pd.Series | None = None

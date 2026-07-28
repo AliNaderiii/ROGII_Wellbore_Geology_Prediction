@@ -2,7 +2,8 @@
 
     python scripts/run_validation.py                       # full run
     python scripts/run_validation.py --max-wells 120       # quick pass
-    python scripts/run_validation.py --spatial             # + offset-well A/B
+    python scripts/run_validation.py --spatial             # opt-in offset-well A/B
+    python scripts/run_validation.py --particle-filter --beam-search --max-wells 100
     python scripts/run_validation.py --models hold_last,ridge
     python scripts/run_validation.py --in-sample-diagnostic
 
@@ -52,7 +53,9 @@ import pandas as pd
 
 from src import reporting
 from src.real_reporting import write_real_analysis
-from src.baselines import BASELINE_ORDER, BASELINES, HAVE_LIGHTGBM
+from src.baselines import BASELINE_ORDER, BASELINES, HAVE_LIGHTGBM, RidgeBaseline
+from src.particle_filter import ParticleFilterFeatureGenerator
+from src.beam_search import BeamSearchFeatureGenerator
 from src.data import discover_wells, load_well
 from src.manifest import (
     SchemaVerificationError,
@@ -125,7 +128,13 @@ def main(argv=None) -> int:
                     help="comma separated; also accepts the aliases "
                          "'masked' and 'groupkfold'")
     ap.add_argument("--spatial", action="store_true",
-                    help="also run the spatial-feature A/B for ridge + lightgbm")
+                    help="explicitly opt into the removed spatial-feature diagnostic")
+    ap.add_argument("--alignment-features", action="store_true",
+                    help="explicitly restore established alignment columns for Ridge diagnostics; default Ridge excludes them")
+    ap.add_argument("--particle-filter", action="store_true",
+                    help="run Ridge plus target-free Particle Filter feature branches")
+    ap.add_argument("--beam-search", action="store_true",
+                    help="run Ridge plus target-free Beam Search feature branches")
     ap.add_argument("--spatial-k", type=int, default=12)
     ap.add_argument("--spatial-radius", type=float, default=6000.0)
     ap.add_argument("--dip-alignment-experiment", action="store_true",
@@ -184,15 +193,36 @@ def main(argv=None) -> int:
 
     # The alignment run is intentionally an isolated A/B: no spatial variant,
     # no stacker and no other baseline can enter its model comparison.
+    path_feature_experiment = bool(args.particle_filter or args.beam_search)
     model_names = [m.strip() for m in args.models.split(",") if m.strip()]
     if args.dip_alignment_experiment:
-        if args.spatial:
-            raise SystemExit("--dip-alignment-experiment is an isolated Ridge A/B; do not combine it with --spatial")
+        if args.spatial or path_feature_experiment:
+            raise SystemExit(
+                "--dip-alignment-experiment is an isolated Ridge A/B; do not combine it "
+                "with spatial, Particle Filter, or Beam Search features"
+            )
         model_names = ["ridge", "dip_constrained_alignment"]
         args.real_analysis = True
-    unknown = [m for m in model_names if m not in BASELINES]
-    if unknown:
-        raise SystemExit(f"unknown model(s): {unknown}; known: {BASELINE_ORDER}")
+    elif path_feature_experiment:
+        if args.spatial or args.alignment_features or args.in_sample_diagnostic:
+            raise SystemExit(
+                "Particle/Beam validation isolates the new features on the selected "
+                "default Ridge; do not combine it with --spatial, --alignment-features, "
+                "or the invalid in-sample diagnostic"
+            )
+        # A is always present. B/C are included by their explicit flags and D
+        # is present only when both generators were requested.
+        model_names = ["ridge_default"]
+        if args.particle_filter:
+            model_names.append("ridge_particle_filter")
+        if args.beam_search:
+            model_names.append("ridge_beam_search")
+        if args.particle_filter and args.beam_search:
+            model_names.append("ridge_particle_beam")
+    else:
+        unknown = [m for m in model_names if m not in BASELINES]
+        if unknown:
+            raise SystemExit(f"unknown model(s): {unknown}; known: {BASELINE_ORDER}")
 
     alias = {"masked": PROTOCOL_A, "groupkfold": PROTOCOL_B}
     protocols = [alias.get(p.strip(), p.strip()) for p in args.protocols.split(",") if p.strip()]
@@ -351,7 +381,59 @@ def main(argv=None) -> int:
         print(f"      blocked public test wells seen in test split: {blocked_present}")
         print(f"      validation universe: {len(universe)} wells (blocked IDs removed)")
 
-    factories = {name: BASELINES[name] for name in model_names}
+    factory_builder = None
+    if path_feature_experiment:
+        # Placeholder names are replaced fold-by-fold below.  The generator
+        # instances must be scoped to (well, fold, protocol) for cache safety.
+        factories = {name: RidgeBaseline for name in model_names}
+
+        def factory_builder(fold_id, protocol):
+            def particle():
+                return ParticleFilterFeatureGenerator(
+                    cache=cache,
+                    dataset_version=dataset_version,
+                    fold_id=fold_id,
+                    protocol=protocol,
+                    device=args.device,
+                )
+
+            def beam():
+                return BeamSearchFeatureGenerator(
+                    cache=cache,
+                    dataset_version=dataset_version,
+                    fold_id=fold_id,
+                    protocol=protocol,
+                    device=args.device,
+                )
+
+            out = {
+                "ridge_default": lambda: RidgeBaseline(
+                    alignment_features=False, spatial=None
+                )
+            }
+            if args.particle_filter:
+                out["ridge_particle_filter"] = lambda: RidgeBaseline(
+                    alignment_features=False, spatial=None, particle_filter=particle()
+                )
+            if args.beam_search:
+                out["ridge_beam_search"] = lambda: RidgeBaseline(
+                    alignment_features=False, spatial=None, beam_search=beam()
+                )
+            if args.particle_filter and args.beam_search:
+                out["ridge_particle_beam"] = lambda: RidgeBaseline(
+                    alignment_features=False,
+                    spatial=None,
+                    particle_filter=particle(),
+                    beam_search=beam(),
+                )
+            return out
+    else:
+        factories = {name: BASELINES[name] for name in model_names}
+        if args.alignment_features and "ridge" in factories:
+            factories["ridge"] = lambda spatial=None: RidgeBaseline(
+                alignment_features=True, spatial=spatial
+            )
+
     spatial_config = (
         SpatialConfig(k=args.spatial_k, radius=args.spatial_radius) if args.spatial else None
     )
@@ -394,6 +476,7 @@ def main(argv=None) -> int:
             verbose=verbose,
             alignment_cache=cache,
             cache_context={"dataset_version": dataset_version},
+            factory_builder=factory_builder,
         )
         well_rows += run.well_results
         fold_records += run.fold_records
@@ -415,6 +498,7 @@ def main(argv=None) -> int:
             verbose=verbose,
             alignment_cache=cache,
             cache_context={"dataset_version": dataset_version},
+            factory_builder=factory_builder,
         )
         well_rows += run.well_results
         fold_records += run.fold_records
@@ -455,6 +539,103 @@ def main(argv=None) -> int:
         failures, columns=["stage", "model", "well_id", "error"]
     )
     failures_df.to_csv(reports_dir / "validation_failures.csv", index=False)
+
+    if path_feature_experiment:
+        # Dedicated artifacts keep the experimental feature-generator evidence
+        # separate from ordinary baseline reports. Comparisons use only wells
+        # scored by every requested branch within a protocol, preventing a
+        # failed branch from winning by silently dropping a hard well.
+        paired_parts = []
+        for protocol, group in well_df.groupby("protocol", sort=False):
+            counts = group.groupby("well_id")["model"].nunique()
+            common = counts[counts == len(model_names)].index
+            paired_parts.append(group[group["well_id"].isin(common)])
+        paired_well_df = pd.concat(paired_parts, ignore_index=True) if paired_parts else well_df.iloc[0:0]
+        path_results = summarize(paired_well_df)
+        if path_results.empty:
+            path_results = pd.DataFrame(
+                columns=[
+                    "model", "protocol", "n_wells", "n_points", "global_rmse",
+                    "mean_well_rmse", "median_well_rmse", "p90_well_rmse",
+                    "worst10_well_rmse", "worst_well_rmse", "predict_seconds",
+                    "delta_global_rmse_vs_default",
+                ]
+            )
+        else:
+            base = (
+                path_results[path_results["model"] == "ridge_default"]
+                .set_index("protocol")["global_rmse"]
+                .to_dict()
+            )
+            path_results["delta_global_rmse_vs_default"] = path_results.apply(
+                lambda row: row["global_rmse"] - base.get(row["protocol"], np.nan), axis=1
+            )
+        path_results.to_csv(reports_dir / "particle_beam_results.csv", index=False)
+        paired_well_df.to_csv(reports_dir / "particle_beam_wells.csv", index=False)
+        diagnostic_columns = [
+            "model", "protocol", "fold", "well_id",
+            "particle_confidence_mean", "particle_confidence_p10",
+            "particle_branch_spread_mean", "particle_branch_spread_p90",
+            "particle_path_smoothness", "particle_fallback_status",
+            "particle_fallback_fraction", "particle_failure_reason", "particle_cache_hit",
+            "beam_confidence_mean", "beam_confidence_p10",
+            "beam_branch_spread_mean", "beam_branch_spread_p90",
+            "beam_path_smoothness", "beam_fallback_status",
+            "beam_fallback_fraction", "beam_failure_reason", "beam_cache_hit",
+        ]
+        diagnostics_df = paired_well_df[
+            [c for c in diagnostic_columns if c in paired_well_df.columns]
+        ].copy()
+        diagnostics_df.to_csv(reports_dir / "particle_beam_diagnostics.csv", index=False)
+        failures_df.to_csv(reports_dir / "particle_beam_failures.csv", index=False)
+
+        branch_labels = {
+            "ridge_default": "A. Ridge without alignment/spatial features",
+            "ridge_particle_filter": "B. Ridge plus Particle Filter features",
+            "ridge_beam_search": "C. Ridge plus Beam Search features",
+            "ridge_particle_beam": "D. Ridge plus Particle Filter and Beam Search features",
+        }
+        if path_results.empty:
+            table = pd.DataFrame(
+                columns=["model", "branch", "protocol", "n_wells", "n_points", "global_rmse"]
+            )
+        else:
+            table = path_results[path_results["model"].isin(branch_labels)].copy()
+            table.insert(1, "branch", table["model"].map(branch_labels))
+        show = [
+            "protocol", "branch", "n_wells", "n_points", "global_rmse",
+            "median_well_rmse", "worst10_well_rmse",
+            "delta_global_rmse_vs_default", "predict_seconds",
+        ]
+        diag_summary_rows = []
+        for (model, protocol), group in diagnostics_df.groupby(["model", "protocol"], sort=False):
+            row = {"model": model, "protocol": protocol, "n_wells": int(group["well_id"].nunique())}
+            for prefix in ("particle", "beam"):
+                for metric in ("confidence_mean", "branch_spread_mean", "path_smoothness", "fallback_fraction"):
+                    col = f"{prefix}_{metric}"
+                    row[col] = float(group[col].dropna().mean()) if col in group and group[col].notna().any() else np.nan
+                reason_col = f"{prefix}_failure_reason"
+                if reason_col in group:
+                    reasons = group[reason_col].fillna("").astype(str)
+                    row[f"{prefix}_failure_reasons"] = "; ".join(
+                        f"{reason or '<none>'}:{count}"
+                        for reason, count in reasons.value_counts().items()
+                    )
+            diag_summary_rows.append(row)
+        diag_summary = pd.DataFrame(diag_summary_rows)
+        (reports_dir / "particle_beam_ablation.md").write_text(
+            "# Particle Filter / Beam Search feature ablation\n\n"
+            "These are target-free, fold-scoped **features for Ridge**, not replacement "
+            "predictors. Protocol scores remain separate and no ensemble or submission "
+            "is created. The default remains branch A unless a leakage-safe branch beats "
+            "it under the promotion rule in `reports/particle_beam_protocol.md`.\n\n"
+            "## Ridge comparison\n\n"
+            + reporting._md_table(table[[c for c in show if c in table.columns]])
+            + "\n## Generator diagnostics\n\n"
+            + reporting._md_table(diag_summary)
+            + "\n",
+            encoding="utf-8",
+        )
 
     spatial_df = pd.DataFrame()
     if args.spatial:
@@ -534,6 +715,12 @@ def main(argv=None) -> int:
         "protocols": protocols,
         "in_sample_diagnostic": bool(args.in_sample_diagnostic),
         "spatial_enabled": bool(args.spatial),
+        "alignment_features_enabled": bool(args.alignment_features),
+        "particle_filter_enabled": bool(args.particle_filter),
+        "beam_search_enabled": bool(args.beam_search),
+        "path_generators_execution_device": "cpu_numpy_portable" if path_feature_experiment else None,
+        "default_ridge_alignment_features": False,
+        "default_ridge_spatial_features": False,
         "dip_alignment_experiment": bool(args.dip_alignment_experiment),
         "real_analysis_requested": bool(args.real_analysis),
         "blocked_well_ids": sorted(BLOCKED_WELL_IDS),
@@ -545,6 +732,10 @@ def main(argv=None) -> int:
         "cross_fitted": True,
     }
     (reports_dir / "run_environment.json").write_text(json.dumps(env, indent=2))
+    if path_feature_experiment:
+        (reports_dir / "particle_beam_run_environment.json").write_text(
+            json.dumps(env, indent=2), encoding="utf-8"
+        )
 
     reporting.write_baseline_report(
         reports_dir / "baseline_report.md",

@@ -137,6 +137,25 @@ class WellResult:
     fallback_points: int = 0
     fallback_fraction: float = np.nan
     dip_fit_r2: float = np.nan
+    # Target-free Particle Filter / Beam Search feature diagnostics.
+    particle_confidence_mean: float = np.nan
+    particle_confidence_p10: float = np.nan
+    particle_branch_spread_mean: float = np.nan
+    particle_branch_spread_p90: float = np.nan
+    particle_path_smoothness: float = np.nan
+    particle_fallback_status: bool | None = None
+    particle_fallback_fraction: float = np.nan
+    particle_failure_reason: str = ""
+    particle_cache_hit: bool | None = None
+    beam_confidence_mean: float = np.nan
+    beam_confidence_p10: float = np.nan
+    beam_branch_spread_mean: float = np.nan
+    beam_branch_spread_p90: float = np.nan
+    beam_path_smoothness: float = np.nan
+    beam_fallback_status: bool | None = None
+    beam_fallback_fraction: float = np.nan
+    beam_failure_reason: str = ""
+    beam_cache_hit: bool | None = None
 
 
 def _trajectory_curvature_deg_per_1000ft(task) -> float:
@@ -228,6 +247,24 @@ def score_well(
         fallback_points=int(diagnostics.get("fallback_points", 0)),
         fallback_fraction=float(diagnostics.get("fallback_fraction", np.nan)),
         dip_fit_r2=float(diagnostics.get("dip_fit_r2", np.nan)),
+        particle_confidence_mean=float(diagnostics.get("particle_confidence_mean", np.nan)),
+        particle_confidence_p10=float(diagnostics.get("particle_confidence_p10", np.nan)),
+        particle_branch_spread_mean=float(diagnostics.get("particle_branch_spread_mean", np.nan)),
+        particle_branch_spread_p90=float(diagnostics.get("particle_branch_spread_p90", np.nan)),
+        particle_path_smoothness=float(diagnostics.get("particle_path_smoothness", np.nan)),
+        particle_fallback_status=diagnostics.get("particle_fallback_status"),
+        particle_fallback_fraction=float(diagnostics.get("particle_fallback_fraction", np.nan)),
+        particle_failure_reason=str(diagnostics.get("particle_failure_reason", "")),
+        particle_cache_hit=diagnostics.get("particle_cache_hit"),
+        beam_confidence_mean=float(diagnostics.get("beam_confidence_mean", np.nan)),
+        beam_confidence_p10=float(diagnostics.get("beam_confidence_p10", np.nan)),
+        beam_branch_spread_mean=float(diagnostics.get("beam_branch_spread_mean", np.nan)),
+        beam_branch_spread_p90=float(diagnostics.get("beam_branch_spread_p90", np.nan)),
+        beam_path_smoothness=float(diagnostics.get("beam_path_smoothness", np.nan)),
+        beam_fallback_status=diagnostics.get("beam_fallback_status"),
+        beam_fallback_fraction=float(diagnostics.get("beam_fallback_fraction", np.nan)),
+        beam_failure_reason=str(diagnostics.get("beam_failure_reason", "")),
+        beam_cache_hit=diagnostics.get("beam_cache_hit"),
     )
 
 
@@ -496,6 +533,7 @@ def run_cross_fitted_protocol(
     verbose: bool = False,
     alignment_cache=None,
     cache_context: dict | None = None,
+    factory_builder=None,
 ) -> ProtocolRun:
     """Fit on fold-train wells, score on fold-validation wells. Never both.
 
@@ -533,7 +571,15 @@ def run_cross_fitted_protocol(
                 "evaluation is invalid — see reports/validation_protocol.md §1."
             )
 
-        models = fit_models(factories, train_tasks, verbose=verbose, failures=run.failures)
+        # Optional generators (Particle Filter / Beam Search) need a fresh
+        # fold-scoped factory so their target-free cache keys include the fold.
+        # Standard validation keeps using the static registry unchanged.
+        fold_factories = (
+            factory_builder(fold.index, protocol)
+            if factory_builder is not None
+            else factories
+        )
+        models = fit_models(fold_factories, train_tasks, verbose=verbose, failures=run.failures)
         fold_cache_context = {
             **(cache_context or {}), "fold": fold.index, "protocol": protocol,
         }
@@ -548,7 +594,7 @@ def run_cross_fitted_protocol(
             prior = SpatialPrior(spatial_config).fit(train_tasks)
             # leave-one-validation-well-out: no validation well may donate
             prior.assert_disjoint(valid_ids)
-            sp_factories = {n: f for n, f in factories.items() if n in spatial_models}
+            sp_factories = {n: f for n, f in fold_factories.items() if n in spatial_models}
             if sp_factories:
                 sp_models = fit_models(
                     sp_factories, train_tasks, spatial=prior,

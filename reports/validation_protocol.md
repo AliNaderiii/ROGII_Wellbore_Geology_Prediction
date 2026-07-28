@@ -249,7 +249,10 @@ prediction region, catching a mis-built boundary.
 
 ## 5. Spatial feature construction (exact method)
 
-Applies when `--spatial` is supplied; reported in `spatial_ablation.csv`.
+Applies only when the explicit diagnostic flag `--spatial` is supplied;
+reported in `spatial_ablation.csv`. The completed real 770-well ablation
+removed these columns from the default Ridge because they worsened both
+protocols. The implementation below is retained unchanged for diagnostics.
 
 1. **Donors**: fold-train wells only. The prior is rebuilt from scratch inside
    every fold.
@@ -301,8 +304,10 @@ Filter, Beam Search, final ensemble, or a Ridge-plus-alignment stack:
 python scripts/run_validation.py --dip-alignment-experiment --expect-train 773 --expect-test 3
 ```
 
-It evaluates `ridge` (unchanged baseline) and `dip_constrained_alignment` under
-both protocols separately. The experimental aligner:
+It evaluates `ridge` and `dip_constrained_alignment` under both protocols
+separately. The direct aligner is now **REJECTED** and code-blocked from a final
+or ensemble path; this command exists only to reproduce its diagnostic. The
+experimental aligner:
 
 1. fits a local apparent stratigraphic plane to `TVT_input + Z` on the visible
    prefix using `MD`, `X`, `Y`, and `Z`; this yields a geometry-only fallback
@@ -354,10 +359,31 @@ Confirmed by test, not merely by intent:
 | Public leaderboard results | No leaderboard value is read anywhere in the codebase |
 | External pretrained artifacts | Out of scope this phase; `reports/decision_table.md` keeps them at NEEDS FURTHER REVIEW |
 
-## 9. Scope boundary
+## 9. Completed 770-well default selection
 
-This phase retains the seven approved baselines plus the **isolated**
-Dip-Constrained GR/Typewell Alignment A/B described in §6. It does not add that
-alignment as a Ridge feature or an ensemble. Particle filters, beam search, DTW
-ensembles and external pretrained artifacts remain explicitly out of scope
-until these results are reviewed and approved.
+The pre-registered A/B/C/D decision is recorded in
+`reports/real_770_ablation_decision.md`. The selected default is Ridge without
+alignment and without spatial features:
+
+- `same_well_masked`: 29.486 default, 29.452 +alignment, 29.569 +spatial,
+  29.531 +alignment+spatial;
+- `unseen_well`: 14.423 default, 14.441 +alignment, 14.582 +spatial,
+  14.580 +alignment+spatial.
+
+Alignment failed the rule requiring improvement under both protocols. Spatial
+worsened both. Neither implementation is deleted: `--alignment-features` and
+`--spatial` are explicit diagnostic opt-ins. Direct
+`dip_constrained_alignment` remains REJECTED.
+
+## 10. Particle Filter and Beam Search scope
+
+PF and Beam Search are now permitted only as target-free, fold-scoped Ridge
+feature generators. They do not replace Ridge and are not ensemble branches.
+Their exact inputs, cache key, fallback diagnostics, CPU/device contract,
+100-real-well A/B/C/D command and promotion rule are specified in
+`reports/particle_beam_protocol.md`.
+
+This extension does **not** alter either validation protocol, public-test
+isolation, scoring, folds, or the task boundary. No final submission may be
+created unless a new feature branch beats the selected default Ridge under the
+leakage-safe promotion rule.

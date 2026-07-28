@@ -32,8 +32,9 @@ python scripts/smoke_test_loader.py        # data-loader smoke test (loads, neve
 python -m src.submission --submission submission.csv \
   --sample-submission /kaggle/input/competitions/rogii-wellbore-geology-prediction/sample_submission.csv
 python scripts/smoke_test_loader.py --expect-train 773 --expect-test 3 --full-scan
-python scripts/run_feature_ablation.py     # A/B/C/D Ridge feature ablation
-python scripts/diagnose_dip_alignment.py   # dip-alignment failure diagnostics
+python scripts/run_feature_ablation.py     # historical A/B/C/D Ridge feature ablation
+python scripts/run_validation.py --particle-filter --beam-search --max-wells 100
+python scripts/diagnose_dip_alignment.py   # REJECTED dip-alignment diagnostics
 python -m pytest tests -q                  # 285 tests, synthetic fixtures only
 ```
 
@@ -53,9 +54,13 @@ python scripts/run_feature_ablation.py \
   --reports-dir /kaggle/working/feature_ablation_reports
 ```
 
-CLI: `--max-wells --n-splits --cache-dir --reports-dir --device --clear-cache
---spatial/--no-spatial --spatial-k --spatial-radius --branches --expect-wells
---seed --label --quiet`.
+Historical ablation CLI: `--max-wells --n-splits --cache-dir --reports-dir
+--device --clear-cache --spatial/--no-spatial --spatial-k --spatial-radius
+--branches --expect-wells --seed --label --quiet`.
+
+The main validation CLI additionally provides `--particle-filter`,
+`--beam-search`, and `--alignment-features`; `--spatial` is also an explicit
+opt-in there. PF/Beam runs write diagnostics only and never a submission.
 
 **Report naming is evidence-based.** `real_*` filenames and the
 `REAL KAGGLE VALIDATION` banner are emitted **only** when the discovered well
@@ -162,6 +167,13 @@ tests/             pytest suite + synthetic fixtures (conftest.py)
 5. Enforce ANCC→ASTNU→ASTNL→EGFDU→EGFDL→BUDA ordering in post-processing.
 
 ## Model promotion status
+
+The completed real 770-well A/B/C/D decision selected Ridge without alignment
+and without spatial features (29.486 / 14.423 RMSE for `same_well_masked` /
+`unseen_well`). Alignment and spatial implementations remain available only
+through explicit diagnostic opt-ins. Particle Filter and Beam Search are
+candidate target-free Ridge features, not models or ensemble branches; see
+`reports/particle_beam_protocol.md`.
 
 `src/model_status.py` is the single source of truth for whether a model may
 enter a final predictor or an ensemble branch. Nothing is approved by default:

@@ -737,6 +737,37 @@ DERIVED_FEATURES: tuple[FeatureSpec, ...] = (
         "search: an apparent-dip estimate measured from the logs.",
         used_by="ridge, lightgbm",
     ),
+    # Particle Filter and Beam Search remain opt-in Ridge feature generators.
+    # Their common provenance is intentionally explicit: Typewell TVT is the
+    # reference coordinate (not the horizontal-well target), and TVT_input is
+    # read only from the structurally visible prefix.
+    *tuple(
+        _derived(
+            name,
+            "GR, Typewell GR, Typewell TVT, MD, X, Y, Z, TVT_input (prefix only)",
+            notes,
+            risk="none — InferenceTask hides horizontal-well TVT and hidden TVT_input",
+            used_by=used_by,
+        )
+        for name, notes, used_by in (
+            ("pf_track", "Particle-filter weighted TVT-coordinate track; diagnostic feature only.", "ridge particle-filter opt-in"),
+            ("pf_shift", "Particle-filter track minus the last visible TVT_input anchor.", "ridge particle-filter opt-in"),
+            ("pf_gradient", "Particle-filter weighted local path gradient.", "ridge particle-filter opt-in"),
+            ("pf_confidence", "Particle concentration after the horizontal-GR observation update.", "ridge particle-filter opt-in"),
+            ("pf_branch_spread", "Weighted P90-P10 spread of particle TVT-coordinate branches.", "ridge particle-filter opt-in"),
+            ("pf_path_smoothness", "Absolute change in particle-filter path gradient.", "ridge particle-filter opt-in"),
+            ("pf_gr_misfit", "Weighted horizontal-GR versus Typewell-GR mismatch.", "ridge particle-filter opt-in"),
+            ("pf_fallback", "One when the particle update uses only the prefix/geometry fallback.", "ridge particle-filter opt-in"),
+            ("beam_track", "Beam-weighted TVT-coordinate track; diagnostic feature only.", "ridge beam-search opt-in"),
+            ("beam_shift", "Beam track minus the last visible TVT_input anchor.", "ridge beam-search opt-in"),
+            ("beam_gradient", "Beam-weighted local path gradient.", "ridge beam-search opt-in"),
+            ("beam_confidence", "Cost-gap and branch-entropy confidence of the retained beam.", "ridge beam-search opt-in"),
+            ("beam_branch_spread", "Weighted P90-P10 spread of retained beam branches.", "ridge beam-search opt-in"),
+            ("beam_path_smoothness", "Absolute change in the beam-search path gradient.", "ridge beam-search opt-in"),
+            ("beam_gr_misfit", "Beam-weighted horizontal-GR versus Typewell-GR mismatch.", "ridge beam-search opt-in"),
+            ("beam_fallback", "One when beam expansion uses only the prefix/geometry fallback.", "ridge beam-search opt-in"),
+        )
+    ),
 )
 
 

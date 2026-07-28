@@ -875,10 +875,9 @@ ROW_FEATURES = [
     "align_gradient",
 ]
 
-#: The four GR/typewell alignment columns, isolated so an ablation can drop
-#: them *without* editing the baseline.  ``FEATURE_COLUMNS`` — the shipped
-#: Ridge feature set — is unchanged and still contains them; only an explicit
-#: caller opting into ``alignment_features=False`` sees a narrower matrix.
+#: The four established GR/typewell alignment columns.  The real 770-well
+#: ablation removed them from the default Ridge matrix, but they remain in the
+#: complete feature catalogue for explicit diagnostics and opt-in experiments.
 ALIGNMENT_FEATURES = [
     "align_tvt",
     "align_score",
@@ -906,12 +905,12 @@ FEATURE_COLUMNS = ROW_FEATURES + SCALAR_FEATURES
 
 
 def feature_columns(*, alignment_features: bool = True) -> list[str]:
-    """The design-matrix column list for an ablation branch.
+    """Return the complete or no-alignment base feature catalogue.
 
-    ``alignment_features=True`` returns exactly ``FEATURE_COLUMNS`` — the
-    current, unchanged Ridge baseline.  ``False`` returns the same list with
-    the four GR/typewell alignment columns removed, so branch A of the
-    ablation is reachable without mutating the shipped feature set.
+    ``FEATURE_COLUMNS`` intentionally still contains the implemented alignment
+    capability.  :class:`RidgeBaseline` now explicitly requests ``False`` by
+    default after the real 770-well decision; diagnostic branches request
+    ``True`` without restoring alignment to the default.
     """
     if alignment_features:
         return list(FEATURE_COLUMNS)
@@ -923,8 +922,7 @@ class WellFeatures:
     """Per-well feature bundle, computed once and reused by every model.
 
     ``dip_alignment`` is opt-in and remains outside ``FEATURE_COLUMNS``.  It
-    exists for the isolated dip-constrained A/B model only, preserving the
-    current Ridge feature set exactly.
+    exists for the isolated, REJECTED dip-constrained diagnostic model only.
     """
 
     __slots__ = (
