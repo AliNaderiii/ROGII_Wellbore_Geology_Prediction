@@ -1,0 +1,25 @@
+protocol,question,measures,value,detail
+same_well_masked,Q1,median std(Z) / std(TVT) over the visible prefix,1.1795210754465324,"median non-planar Z residual = 0.09 ft, i.e. 0.21x the TVT signal's own standard deviation — this leaks into TVT one-for-one"
+unseen_well,Q1,median std(Z) / std(TVT) over the visible prefix,1.1926345223808816,"median non-planar Z residual = 0.28 ft, i.e. 0.22x the TVT signal's own standard deviation — this leaks into TVT one-for-one"
+same_well_masked,Q1b,median empirical dTVT/dZ over the prefix (the code hard-codes -1),-0.7521183255040554,median |coefficient error| x Z lever arm = 1.12 ft; median Z movement across the predicted region = 5.0 ft
+unseen_well,Q1b,median empirical dTVT/dZ over the prefix (the code hard-codes -1),-0.7727498271773019,median |coefficient error| x Z lever arm = 1.24 ft; median Z movement across the predicted region = 4.8 ft
+same_well_masked,Q2,share of wells where TVT+Z is the flatter surface,0.85,median |R2 margin| = 0.0413 (small margin means the plane absorbs either sign)
+unseen_well,Q2,share of wells where TVT+Z is the flatter surface,0.85,median |R2 margin| = 0.0873 (small margin means the plane absorbs either sign)
+same_well_masked,Q3,share of wells whose projected gradient matches the observed prefix sign,0.95,median gradient ratio = 0.971
+unseen_well,Q3,share of wells whose projected gradient matches the observed prefix sign,0.925,median gradient ratio = 0.971
+same_well_masked,Q4,median cross-track/along-track singular ratio of the visible prefix,413.22140368605824,median perpendicular span = 4 ft; median unidentified-dip TVT error = 0.004 ft
+unseen_well,Q4,median cross-track/along-track singular ratio of the visible prefix,227.15285644401126,median perpendicular span = 20 ft; median unidentified-dip TVT error = 0.004 ft
+same_well_masked,Q4b,"median hidden-region extrapolation, as a multiple of the fitted span",1.3723304886180445,
+unseen_well,Q4b,"median hidden-region extrapolation, as a multiple of the fitted span",0.5780417952908291,
+same_well_masked,Q5,"share of wells whose GR amplitude gain was clipped to [0.2, 5.0]",0.575,median gain = 0.139; median split-half ratio = 1.896
+unseen_well,Q5,"share of wells whose GR amplitude gain was clipped to [0.2, 5.0]",0.5,median gain = 0.198; median split-half ratio = 1.422
+same_well_masked,Q6,median GR cycles traversed per alignment window,0.01962362809315812,median typewell GR wavelength = 70.0 ft TVT
+unseen_well,Q6,median GR cycles traversed per alignment window,0.019638990996383825,median typewell GR wavelength = 70.0 ft TVT
+same_well_masked,Q7,"median TVT traversed per alignment window, in feet",1.3736539665210685,"search half-width = 12.0 ft, i.e. the search range exceeds the section a window actually crosses"
+unseen_well,Q7,"median TVT traversed per alignment window, in feet",1.3747293697468677,"search half-width = 12.0 ft, i.e. the search range exceeds the section a window actually crosses"
+same_well_masked,Q8,mean fallback fraction over predicted rows,0.30837382991030476,mean confidence = 0.5722; alignment failed outright on 0 wells
+unseen_well,Q8,mean fallback fraction over predicted rows,0.18317942365092046,mean confidence = 0.6886; alignment failed outright on 0 wells
+same_well_masked,Q9,median |bias| as a share of that well's RMSE,0.6520111710102197,mean signed bias = 0.121 ft
+unseen_well,Q9,median |bias| as a share of that well's RMSE,0.6655513670491465,mean signed bias = 0.015 ft
+same_well_masked,Q9b,median typewell-clip fraction of the prediction,0.0,a high value means the prediction is pinned to the reference-section edge
+unseen_well,Q9b,median typewell-clip fraction of the prediction,0.0,a high value means the prediction is pinned to the reference-section edge

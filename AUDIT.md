@@ -32,7 +32,9 @@ python scripts/smoke_test_loader.py        # data-loader smoke test (loads, neve
 python -m src.submission --submission submission.csv \
   --sample-submission /kaggle/input/competitions/rogii-wellbore-geology-prediction/sample_submission.csv
 python scripts/smoke_test_loader.py --expect-train 773 --expect-test 3 --full-scan
-python -m pytest tests -q                  # 59 tests, synthetic fixtures only
+python scripts/run_feature_ablation.py     # A/B/C/D Ridge feature ablation
+python scripts/diagnose_dip_alignment.py   # dip-alignment failure diagnostics
+python -m pytest tests -q                  # 239 tests, synthetic fixtures only
 ```
 
 From a Kaggle Notebook cell:
@@ -124,3 +126,18 @@ tests/             pytest suite + synthetic fixtures (conftest.py)
 7. The 3 visible test wells are for pipeline validation only — never tune on
    them.
 5. Enforce ANCC→ASTNU→ASTNL→EGFDU→EGFDL→BUDA ordering in post-processing.
+
+## Model promotion status
+
+`src/model_status.py` is the single source of truth for whether a model may
+enter a final predictor or an ensemble branch. Nothing is approved by default:
+an unlisted model is `CANDIDATE`, never `APPROVED`.
+
+| Model | Status | Evidence |
+|---|---|---|
+| `dip_constrained_alignment` | **REJECTED** | Real 770-well run, both protocols: +248.202 RMSE (`same_well_masked`), +82.104 RMSE (`unseen_well`) vs Ridge |
+
+`assert_not_rejected()` raises on any attempt to route a rejected model into a
+final/ensemble path; rejection does **not** block running the model as a
+diagnostic, so the failure stays reproducible. The full analysis is in
+`reports/dip_alignment_failure_analysis.md`.

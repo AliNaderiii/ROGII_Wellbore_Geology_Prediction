@@ -13,6 +13,15 @@ from typing import Iterable
 import numpy as np
 import pandas as pd
 
+from src.ablation import (
+    BRANCH_LABELS,
+    BRANCH_ORDER,
+    BRANCH_SPEC,
+    alignment_feature_recommendation,
+    alignment_feature_verdict,
+    summarize_ablation,
+)
+from src.model_status import status_of, status_table
 from src.reporting import spatial_ablation
 from src.validation import (
     GR_BINS,
@@ -45,6 +54,33 @@ def _md_table(df: pd.DataFrame, digits: int = 3) -> str:
     rule = "|" + "|".join("---" for _ in out.columns) + "|"
     body = ["| " + " | ".join(row) + " |" for row in out.to_numpy()]
     return "\n".join([header, rule, *body]) + "\n"
+
+
+def _bool_column(frame: pd.DataFrame, name: str) -> pd.Series:
+    """Read ``name`` as a strict boolean Series, treating missing as ``False``.
+
+    A CSV round-trip stores ``alignment_ok`` / ``alignment_cache_hit`` as
+    ``object`` whenever any row is blank, and ``Series.fillna`` on an object
+    column silently downcasts — which pandas deprecated (``FutureWarning``:
+    "Downcasting object dtype arrays on .fillna, .ffill, .bfill is
+    deprecated"). Converting explicitly is both warning-free and unambiguous
+    about how a blank is scored: a well with no recorded flag is not counted
+    as a success.
+    """
+    if name not in frame.columns:
+        return pd.Series(False, index=frame.index, dtype=bool)
+    column = frame[name]
+    if pd.api.types.is_bool_dtype(column):
+        return column.astype(bool)
+    truthy = {"true", "1", "yes", "t"}
+    coerced = column.map(
+        lambda value: (
+            False
+            if value is None or (not isinstance(value, str) and pd.isna(value))
+            else (str(value).strip().lower() in truthy if isinstance(value, str) else bool(value))
+        )
+    )
+    return coerced.astype(bool)
 
 
 def _weighted_rmse(group: pd.DataFrame) -> float:
@@ -288,7 +324,7 @@ def _alignment_ablation(well: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]
         rr = _weighted_rmse(comparator) if len(comparator) else np.nan
         n = float(group["n_points"].sum())
         fallback = float(group["fallback_points"].sum()) if "fallback_points" in group else np.nan
-        fail = (~group.get("alignment_ok", pd.Series(False, index=group.index)).fillna(False).astype(bool)).sum()
+        fail = int((~_bool_column(group, "alignment_ok")).sum())
         rows.append(
             {
                 "protocol": protocol,
@@ -301,7 +337,7 @@ def _alignment_ablation(well: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]
                 "alignment_failure_wells": int(fail),
                 "fallback_points": int(fallback),
                 "fallback_fraction": fallback / n if n else np.nan,
-                "cache_hit_wells": int(group.get("alignment_cache_hit", pd.Series(False, index=group.index)).fillna(False).astype(bool).sum()),
+                "cache_hit_wells": int(_bool_column(group, "alignment_cache_hit").sum()),
             }
         )
     return pd.DataFrame(rows), alignment
@@ -495,10 +531,12 @@ def write_real_analysis(reports_dir: str | Path) -> list[Path]:
     if len(ablation):
         alignment_csv = root / "dip_constrained_alignment_ablation.csv"
         ablation.to_csv(alignment_csv, index=False)
-        failed = alignment_rows[~alignment_rows["alignment_ok"].fillna(False).astype(bool)].copy()
+        failed = alignment_rows[~_bool_column(alignment_rows, "alignment_ok")].copy()
         if len(failed):
+            reasons = failed["alignment_failure_reason"].astype("string").fillna("")
+            reasons = reasons.mask(reasons.str.strip() == "", "unspecified").astype(str)
             reason_counts = (
-                failed.assign(alignment_failure_reason=failed["alignment_failure_reason"].replace("", "unspecified"))
+                failed.assign(alignment_failure_reason=reasons)
                 .groupby(["protocol", "alignment_failure_reason"], as_index=False)
                 .agg(failure_wells=("well_id", "nunique"), scored_points=("n_points", "sum"))
             )
@@ -518,8 +556,87 @@ def write_real_analysis(reports_dir: str | Path) -> list[Path]:
             "counts predicted rows where the model used its visible-prefix X/Y/Z dip projection because "
             "the match failed or confidence was below the fixed threshold.\n\n"
             "## Alignment failure reasons\n\n"
-            + _md_table(reason_counts),
+            + _md_table(reason_counts)
+            + "\n## Promotion status\n\n"
+            + _md_table(pd.DataFrame(status_table()))
+            + "\n"
+            + _rejection_paragraph("dip_constrained_alignment"),
             encoding="utf-8",
         )
         produced += [alignment_csv, alignment_md]
+
+    produced += write_alignment_spatial_ablation(root)
     return produced
+
+
+def _rejection_paragraph(model: str) -> str:
+    status = status_of(model)
+    if not status.is_rejected:
+        return f"`{model}` is currently **{status.status}**. {status.reason}\n"
+    return (
+        f"`{model}` is **{status.status}**. {status.reason} "
+        f"Evidence: {status.source_run}. It is blocked from every final-predictor and "
+        "ensemble path by `src.model_status.assert_not_rejected`.\n"
+    )
+
+
+def write_alignment_spatial_ablation(reports_dir: str | Path) -> list[Path]:
+    """Write the A/B/C/D Ridge feature ablation report, when it was run.
+
+    Reads ``alignment_spatial_ablation_wells.csv`` — the per-well output of
+    ``scripts/run_feature_ablation.py``. Absence means the ablation was not
+    run; no table is invented in that case.
+    """
+    root = Path(reports_dir)
+    wells_path = root / "alignment_spatial_ablation_wells.csv"
+    if not wells_path.exists():
+        return []
+    wells = pd.read_csv(wells_path)
+    summary = summarize_ablation(wells)
+    if summary.empty:
+        return []
+    verdict = alignment_feature_verdict(summary)
+    recommendation = alignment_feature_recommendation(verdict)
+
+    summary_csv = root / "alignment_spatial_ablation.csv"
+    summary.to_csv(summary_csv, index=False)
+    verdict_csv = root / "alignment_feature_verdict.csv"
+    verdict.to_csv(verdict_csv, index=False)
+
+    keep = recommendation["decision"] == "keep_as_features"
+    action = (
+        "**Keep** the alignment features, as residual/features only — never as a direct "
+        "predictor or an ensemble branch."
+        if keep
+        else "**Remove** the alignment features from the next baseline."
+    )
+    lines = [
+        "# Ridge alignment / spatial feature ablation\n",
+        "A 2x2 factorial run through the **existing** Ridge model. Branch B is the current, "
+        "unmodified Ridge baseline and every delta is taken against it. All four branches share "
+        "the same folds and are cross-fitted by well ID; the two protocols are reported "
+        "separately and never averaged.\n",
+        "| branch | alignment features | spatial features |\n|---|---|---|\n"
+        + "\n".join(
+            f"| {BRANCH_LABELS[b]} | {'yes' if BRANCH_SPEC[b][0] else 'no'} | "
+            f"{'yes' if BRANCH_SPEC[b][1] else 'no'} |"
+            for b in BRANCH_ORDER
+        )
+        + "\n",
+        "## Delta against the current Ridge baseline\n",
+        _md_table(summary.drop(columns=["label"], errors="ignore")),
+        "Only wells scored by every branch within a protocol enter the comparison, so a branch "
+        "cannot look better by having dropped a hard well.\n",
+        "## Isolating the alignment features\n",
+        _md_table(verdict),
+        "Each row is a paired contrast holding the spatial setting fixed. A negative "
+        "`delta_global_rmse` means the alignment features lowered RMSE.\n",
+        "## Decision\n",
+        f"{recommendation['n_helping']} of {recommendation['n_contrasts']} contrasts favour the "
+        f"alignment features, covering {', '.join(recommendation['protocols_covered'])}. "
+        f"{recommendation['reason'].capitalize()}.\n",
+        f"{action}\n",
+    ]
+    report = root / "alignment_spatial_ablation.md"
+    report.write_text("\n".join(lines), encoding="utf-8")
+    return [summary_csv, verdict_csv, report]

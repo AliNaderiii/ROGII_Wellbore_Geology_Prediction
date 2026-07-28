@@ -798,6 +798,17 @@ ROW_FEATURES = [
     "align_gradient",
 ]
 
+#: The four GR/typewell alignment columns, isolated so an ablation can drop
+#: them *without* editing the baseline.  ``FEATURE_COLUMNS`` — the shipped
+#: Ridge feature set — is unchanged and still contains them; only an explicit
+#: caller opting into ``alignment_features=False`` sees a narrower matrix.
+ALIGNMENT_FEATURES = [
+    "align_tvt",
+    "align_score",
+    "align_shift",
+    "align_gradient",
+]
+
 SCALAR_FEATURES = [
     "tvt_last",
     "tvt_slope_100",
@@ -815,6 +826,20 @@ SCALAR_FEATURES = [
 ]
 
 FEATURE_COLUMNS = ROW_FEATURES + SCALAR_FEATURES
+
+
+def feature_columns(*, alignment_features: bool = True) -> list[str]:
+    """The design-matrix column list for an ablation branch.
+
+    ``alignment_features=True`` returns exactly ``FEATURE_COLUMNS`` — the
+    current, unchanged Ridge baseline.  ``False`` returns the same list with
+    the four GR/typewell alignment columns removed, so branch A of the
+    ablation is reachable without mutating the shipped feature set.
+    """
+    if alignment_features:
+        return list(FEATURE_COLUMNS)
+    drop = set(ALIGNMENT_FEATURES)
+    return [c for c in FEATURE_COLUMNS if c not in drop]
 
 
 class WellFeatures:

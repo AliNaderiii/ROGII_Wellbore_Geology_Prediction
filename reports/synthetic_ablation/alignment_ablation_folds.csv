@@ -1,0 +1,11 @@
+protocol,fold,n_train_wells,n_valid_wells,n_branches_fitted,seconds
+same_well_masked,0,32,8,4,11.602772010999956
+same_well_masked,1,32,8,4,10.845119501999989
+same_well_masked,2,32,8,4,10.954348890999995
+same_well_masked,3,32,8,4,10.825574427999982
+same_well_masked,4,32,8,4,10.778954928999951
+unseen_well,0,32,8,4,11.040957433000017
+unseen_well,1,32,8,4,11.125557729999969
+unseen_well,2,32,8,4,11.319090800000026
+unseen_well,3,32,8,4,11.372274636000043
+unseen_well,4,32,8,4,11.192961154000045

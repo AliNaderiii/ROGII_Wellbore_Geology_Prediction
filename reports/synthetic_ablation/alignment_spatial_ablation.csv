@@ -1,0 +1,9 @@
+protocol,branch,label,alignment_features,spatial_features,n_wells,n_points,global_rmse,median_well_rmse,worst10_well_rmse,delta_global_rmse_vs_baseline,pct_change_vs_baseline,delta_median_well_rmse_vs_baseline
+same_well_masked,ridge_no_align,A. Ridge without alignment features,False,False,40,94674,2.1215343944916585,1.2398874218974925,3.2054293379701684,-0.01657554296306829,-0.7752427820807165,-0.1481526157574775
+same_well_masked,ridge_baseline,B. Ridge with alignment features (current baseline),True,False,40,94674,2.1381099374547268,1.38804003765497,3.278290334163689,0.0,0.0,0.0
+same_well_masked,ridge_spatial_only,C. Ridge with spatial features,False,True,40,94674,2.1081253922413814,1.3482651608255014,3.146608261098036,-0.02998454521334537,-1.4023855690526332,-0.039774876829468564
+same_well_masked,ridge_align_spatial,D. Ridge with alignment and spatial features,True,True,40,94674,2.1380391785939596,1.4061078832963219,3.2204790237654186,-7.075886076712834e-05,-0.0033094117158148522,0.018067845641351887
+unseen_well,ridge_no_align,A. Ridge without alignment features,False,False,40,97528,1.7914369883452055,1.411756364531334,2.754466693440272,0.09755851888025235,5.759475702590886,0.09979840688439379
+unseen_well,ridge_baseline,B. Ridge with alignment features (current baseline),True,False,40,97528,1.6938784694649531,1.3119579576469402,2.5296497576869283,0.0,0.0,0.0
+unseen_well,ridge_spatial_only,C. Ridge with spatial features,False,True,40,97528,1.6326619042174708,1.4466157105354855,2.4255663561099583,-0.06121656524748231,-3.6139880369823016,0.1346577528885453
+unseen_well,ridge_align_spatial,D. Ridge with alignment and spatial features,True,True,40,97528,1.6539116404576686,1.3813598062765449,2.462393781321299,-0.03996682900728454,-2.3594862162637265,0.06940184862960463
