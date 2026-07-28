@@ -1,0 +1,133 @@
+branch,branch_label,feature,kind,raw_roots,manifest_known
+ridge_no_align,A. Ridge without alignment features,dmd,manifest,MD,True
+ridge_no_align,A. Ridge without alignment features,log1p_dmd,manifest,MD,True
+ridge_no_align,A. Ridge without alignment features,dx,manifest,X,True
+ridge_no_align,A. Ridge without alignment features,dy,manifest,Y,True
+ridge_no_align,A. Ridge without alignment features,dz,manifest,Z,True
+ridge_no_align,A. Ridge without alignment features,lateral_disp,manifest,X|Y,True
+ridge_no_align,A. Ridge without alignment features,dz_per_ft,manifest,MD|Z,True
+ridge_no_align,A. Ridge without alignment features,local_dz_dmd,manifest,MD|Z,True
+ridge_no_align,A. Ridge without alignment features,heading_sin,manifest,X|Y,True
+ridge_no_align,A. Ridge without alignment features,heading_cos,manifest,X|Y,True
+ridge_no_align,A. Ridge without alignment features,gr_filled,manifest,GR,True
+ridge_no_align,A. Ridge without alignment features,gr_is_missing,manifest,GR,True
+ridge_no_align,A. Ridge without alignment features,gr_roll_mean_51,manifest,GR,True
+ridge_no_align,A. Ridge without alignment features,gr_roll_std_51,manifest,GR,True
+ridge_no_align,A. Ridge without alignment features,gr_z,manifest,GR,True
+ridge_no_align,A. Ridge without alignment features,tvt_last,manifest,TVT_input,True
+ridge_no_align,A. Ridge without alignment features,tvt_slope_100,manifest,MD|TVT_input,True
+ridge_no_align,A. Ridge without alignment features,tvt_slope_300,manifest,MD|TVT_input,True
+ridge_no_align,A. Ridge without alignment features,tvt_slope_1000,manifest,MD|TVT_input,True
+ridge_no_align,A. Ridge without alignment features,tvt_std_prefix,manifest,TVT_input,True
+ridge_no_align,A. Ridge without alignment features,tvt_range_prefix,manifest,TVT_input,True
+ridge_no_align,A. Ridge without alignment features,prefix_len,manifest,TVT_input,True
+ridge_no_align,A. Ridge without alignment features,gr_missing_frac_well,manifest,GR,True
+ridge_no_align,A. Ridge without alignment features,tw_gr_at_tvt_last,manifest,TVT_input|Typewell GR|Typewell TVT,True
+ridge_no_align,A. Ridge without alignment features,tw_dgr_dtvt_at_tvt_last,manifest,TVT_input|Typewell GR|Typewell TVT,True
+ridge_no_align,A. Ridge without alignment features,tw_tvt_min,manifest,Typewell TVT,True
+ridge_no_align,A. Ridge without alignment features,tw_tvt_max,manifest,Typewell TVT,True
+ridge_no_align,A. Ridge without alignment features,tw_gr_std,manifest,Typewell GR,True
+ridge_baseline,B. Ridge with alignment features (current baseline),dmd,manifest,MD,True
+ridge_baseline,B. Ridge with alignment features (current baseline),log1p_dmd,manifest,MD,True
+ridge_baseline,B. Ridge with alignment features (current baseline),dx,manifest,X,True
+ridge_baseline,B. Ridge with alignment features (current baseline),dy,manifest,Y,True
+ridge_baseline,B. Ridge with alignment features (current baseline),dz,manifest,Z,True
+ridge_baseline,B. Ridge with alignment features (current baseline),lateral_disp,manifest,X|Y,True
+ridge_baseline,B. Ridge with alignment features (current baseline),dz_per_ft,manifest,MD|Z,True
+ridge_baseline,B. Ridge with alignment features (current baseline),local_dz_dmd,manifest,MD|Z,True
+ridge_baseline,B. Ridge with alignment features (current baseline),heading_sin,manifest,X|Y,True
+ridge_baseline,B. Ridge with alignment features (current baseline),heading_cos,manifest,X|Y,True
+ridge_baseline,B. Ridge with alignment features (current baseline),gr_filled,manifest,GR,True
+ridge_baseline,B. Ridge with alignment features (current baseline),gr_is_missing,manifest,GR,True
+ridge_baseline,B. Ridge with alignment features (current baseline),gr_roll_mean_51,manifest,GR,True
+ridge_baseline,B. Ridge with alignment features (current baseline),gr_roll_std_51,manifest,GR,True
+ridge_baseline,B. Ridge with alignment features (current baseline),gr_z,manifest,GR,True
+ridge_baseline,B. Ridge with alignment features (current baseline),align_tvt,alignment,GR|MD|Typewell GR|Typewell TVT,True
+ridge_baseline,B. Ridge with alignment features (current baseline),align_score,alignment,GR|Typewell GR,True
+ridge_baseline,B. Ridge with alignment features (current baseline),align_shift,alignment,GR|MD|TVT_input|Typewell GR|Typewell TVT,True
+ridge_baseline,B. Ridge with alignment features (current baseline),align_gradient,alignment,GR|MD|Typewell GR,True
+ridge_baseline,B. Ridge with alignment features (current baseline),tvt_last,manifest,TVT_input,True
+ridge_baseline,B. Ridge with alignment features (current baseline),tvt_slope_100,manifest,MD|TVT_input,True
+ridge_baseline,B. Ridge with alignment features (current baseline),tvt_slope_300,manifest,MD|TVT_input,True
+ridge_baseline,B. Ridge with alignment features (current baseline),tvt_slope_1000,manifest,MD|TVT_input,True
+ridge_baseline,B. Ridge with alignment features (current baseline),tvt_std_prefix,manifest,TVT_input,True
+ridge_baseline,B. Ridge with alignment features (current baseline),tvt_range_prefix,manifest,TVT_input,True
+ridge_baseline,B. Ridge with alignment features (current baseline),prefix_len,manifest,TVT_input,True
+ridge_baseline,B. Ridge with alignment features (current baseline),gr_missing_frac_well,manifest,GR,True
+ridge_baseline,B. Ridge with alignment features (current baseline),tw_gr_at_tvt_last,manifest,TVT_input|Typewell GR|Typewell TVT,True
+ridge_baseline,B. Ridge with alignment features (current baseline),tw_dgr_dtvt_at_tvt_last,manifest,TVT_input|Typewell GR|Typewell TVT,True
+ridge_baseline,B. Ridge with alignment features (current baseline),tw_tvt_min,manifest,Typewell TVT,True
+ridge_baseline,B. Ridge with alignment features (current baseline),tw_tvt_max,manifest,Typewell TVT,True
+ridge_baseline,B. Ridge with alignment features (current baseline),tw_gr_std,manifest,Typewell GR,True
+ridge_spatial_only,C. Ridge with spatial features,dmd,manifest,MD,True
+ridge_spatial_only,C. Ridge with spatial features,log1p_dmd,manifest,MD,True
+ridge_spatial_only,C. Ridge with spatial features,dx,manifest,X,True
+ridge_spatial_only,C. Ridge with spatial features,dy,manifest,Y,True
+ridge_spatial_only,C. Ridge with spatial features,dz,manifest,Z,True
+ridge_spatial_only,C. Ridge with spatial features,lateral_disp,manifest,X|Y,True
+ridge_spatial_only,C. Ridge with spatial features,dz_per_ft,manifest,MD|Z,True
+ridge_spatial_only,C. Ridge with spatial features,local_dz_dmd,manifest,MD|Z,True
+ridge_spatial_only,C. Ridge with spatial features,heading_sin,manifest,X|Y,True
+ridge_spatial_only,C. Ridge with spatial features,heading_cos,manifest,X|Y,True
+ridge_spatial_only,C. Ridge with spatial features,gr_filled,manifest,GR,True
+ridge_spatial_only,C. Ridge with spatial features,gr_is_missing,manifest,GR,True
+ridge_spatial_only,C. Ridge with spatial features,gr_roll_mean_51,manifest,GR,True
+ridge_spatial_only,C. Ridge with spatial features,gr_roll_std_51,manifest,GR,True
+ridge_spatial_only,C. Ridge with spatial features,gr_z,manifest,GR,True
+ridge_spatial_only,C. Ridge with spatial features,tvt_last,manifest,TVT_input,True
+ridge_spatial_only,C. Ridge with spatial features,tvt_slope_100,manifest,MD|TVT_input,True
+ridge_spatial_only,C. Ridge with spatial features,tvt_slope_300,manifest,MD|TVT_input,True
+ridge_spatial_only,C. Ridge with spatial features,tvt_slope_1000,manifest,MD|TVT_input,True
+ridge_spatial_only,C. Ridge with spatial features,tvt_std_prefix,manifest,TVT_input,True
+ridge_spatial_only,C. Ridge with spatial features,tvt_range_prefix,manifest,TVT_input,True
+ridge_spatial_only,C. Ridge with spatial features,prefix_len,manifest,TVT_input,True
+ridge_spatial_only,C. Ridge with spatial features,gr_missing_frac_well,manifest,GR,True
+ridge_spatial_only,C. Ridge with spatial features,tw_gr_at_tvt_last,manifest,TVT_input|Typewell GR|Typewell TVT,True
+ridge_spatial_only,C. Ridge with spatial features,tw_dgr_dtvt_at_tvt_last,manifest,TVT_input|Typewell GR|Typewell TVT,True
+ridge_spatial_only,C. Ridge with spatial features,tw_tvt_min,manifest,Typewell TVT,True
+ridge_spatial_only,C. Ridge with spatial features,tw_tvt_max,manifest,Typewell TVT,True
+ridge_spatial_only,C. Ridge with spatial features,tw_gr_std,manifest,Typewell GR,True
+ridge_spatial_only,C. Ridge with spatial features,nbr_n,spatial,donor X|donor Y|donor TVT (fold-train wells only),False
+ridge_spatial_only,C. Ridge with spatial features,nbr_dist_min,spatial,donor X|donor Y|donor TVT (fold-train wells only),False
+ridge_spatial_only,C. Ridge with spatial features,nbr_tvt_wmean,spatial,donor X|donor Y|donor TVT (fold-train wells only),False
+ridge_spatial_only,C. Ridge with spatial features,nbr_tvt_std,spatial,donor X|donor Y|donor TVT (fold-train wells only),False
+ridge_spatial_only,C. Ridge with spatial features,nbr_shift,spatial,donor X|donor Y|donor TVT (fold-train wells only),False
+ridge_spatial_only,C. Ridge with spatial features,nbr_grad_along,spatial,donor X|donor Y|donor TVT (fold-train wells only),False
+ridge_align_spatial,D. Ridge with alignment and spatial features,dmd,manifest,MD,True
+ridge_align_spatial,D. Ridge with alignment and spatial features,log1p_dmd,manifest,MD,True
+ridge_align_spatial,D. Ridge with alignment and spatial features,dx,manifest,X,True
+ridge_align_spatial,D. Ridge with alignment and spatial features,dy,manifest,Y,True
+ridge_align_spatial,D. Ridge with alignment and spatial features,dz,manifest,Z,True
+ridge_align_spatial,D. Ridge with alignment and spatial features,lateral_disp,manifest,X|Y,True
+ridge_align_spatial,D. Ridge with alignment and spatial features,dz_per_ft,manifest,MD|Z,True
+ridge_align_spatial,D. Ridge with alignment and spatial features,local_dz_dmd,manifest,MD|Z,True
+ridge_align_spatial,D. Ridge with alignment and spatial features,heading_sin,manifest,X|Y,True
+ridge_align_spatial,D. Ridge with alignment and spatial features,heading_cos,manifest,X|Y,True
+ridge_align_spatial,D. Ridge with alignment and spatial features,gr_filled,manifest,GR,True
+ridge_align_spatial,D. Ridge with alignment and spatial features,gr_is_missing,manifest,GR,True
+ridge_align_spatial,D. Ridge with alignment and spatial features,gr_roll_mean_51,manifest,GR,True
+ridge_align_spatial,D. Ridge with alignment and spatial features,gr_roll_std_51,manifest,GR,True
+ridge_align_spatial,D. Ridge with alignment and spatial features,gr_z,manifest,GR,True
+ridge_align_spatial,D. Ridge with alignment and spatial features,align_tvt,alignment,GR|MD|Typewell GR|Typewell TVT,True
+ridge_align_spatial,D. Ridge with alignment and spatial features,align_score,alignment,GR|Typewell GR,True
+ridge_align_spatial,D. Ridge with alignment and spatial features,align_shift,alignment,GR|MD|TVT_input|Typewell GR|Typewell TVT,True
+ridge_align_spatial,D. Ridge with alignment and spatial features,align_gradient,alignment,GR|MD|Typewell GR,True
+ridge_align_spatial,D. Ridge with alignment and spatial features,tvt_last,manifest,TVT_input,True
+ridge_align_spatial,D. Ridge with alignment and spatial features,tvt_slope_100,manifest,MD|TVT_input,True
+ridge_align_spatial,D. Ridge with alignment and spatial features,tvt_slope_300,manifest,MD|TVT_input,True
+ridge_align_spatial,D. Ridge with alignment and spatial features,tvt_slope_1000,manifest,MD|TVT_input,True
+ridge_align_spatial,D. Ridge with alignment and spatial features,tvt_std_prefix,manifest,TVT_input,True
+ridge_align_spatial,D. Ridge with alignment and spatial features,tvt_range_prefix,manifest,TVT_input,True
+ridge_align_spatial,D. Ridge with alignment and spatial features,prefix_len,manifest,TVT_input,True
+ridge_align_spatial,D. Ridge with alignment and spatial features,gr_missing_frac_well,manifest,GR,True
+ridge_align_spatial,D. Ridge with alignment and spatial features,tw_gr_at_tvt_last,manifest,TVT_input|Typewell GR|Typewell TVT,True
+ridge_align_spatial,D. Ridge with alignment and spatial features,tw_dgr_dtvt_at_tvt_last,manifest,TVT_input|Typewell GR|Typewell TVT,True
+ridge_align_spatial,D. Ridge with alignment and spatial features,tw_tvt_min,manifest,Typewell TVT,True
+ridge_align_spatial,D. Ridge with alignment and spatial features,tw_tvt_max,manifest,Typewell TVT,True
+ridge_align_spatial,D. Ridge with alignment and spatial features,tw_gr_std,manifest,Typewell GR,True
+ridge_align_spatial,D. Ridge with alignment and spatial features,nbr_n,spatial,donor X|donor Y|donor TVT (fold-train wells only),False
+ridge_align_spatial,D. Ridge with alignment and spatial features,nbr_dist_min,spatial,donor X|donor Y|donor TVT (fold-train wells only),False
+ridge_align_spatial,D. Ridge with alignment and spatial features,nbr_tvt_wmean,spatial,donor X|donor Y|donor TVT (fold-train wells only),False
+ridge_align_spatial,D. Ridge with alignment and spatial features,nbr_tvt_std,spatial,donor X|donor Y|donor TVT (fold-train wells only),False
+ridge_align_spatial,D. Ridge with alignment and spatial features,nbr_shift,spatial,donor X|donor Y|donor TVT (fold-train wells only),False
+ridge_align_spatial,D. Ridge with alignment and spatial features,nbr_grad_along,spatial,donor X|donor Y|donor TVT (fold-train wells only),False

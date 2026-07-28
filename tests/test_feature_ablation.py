@@ -374,3 +374,172 @@ def test_no_ablation_report_is_invented_when_the_run_did_not_happen(tmp_path):
     real = _mod("real_reporting")
     assert real.write_alignment_spatial_ablation(tmp_path) == []
     assert not (tmp_path / "alignment_spatial_ablation.md").exists()
+
+
+# --------------------------------------------------------- CLI + caching --
+
+def _cli(mount, tmp_path, *extra, reports="rep", cache="cache"):
+    """Invoke the ablation entrypoint in-process and return its exit code."""
+    import scripts.run_feature_ablation as runner
+
+    return runner.main([
+        "--n-splits", "2", "--max-wells", "4", "--quiet",
+        "--reports-dir", str(tmp_path / reports),
+        "--cache-dir", str(tmp_path / cache),
+        *extra,
+    ])
+
+
+def test_cli_supports_every_required_option():
+    """The brief fixes the exact flags the Kaggle command line uses."""
+    import scripts.run_feature_ablation as runner
+
+    # Read the CLI's own --help output rather than a hand-kept list.
+    import contextlib
+    import io
+
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf), pytest.raises(SystemExit):
+        runner.main(["--help"])
+    help_text = buf.getvalue()
+    for flag in ("--max-wells", "--n-splits", "--cache-dir", "--reports-dir",
+                 "--device", "--clear-cache", "--spatial"):
+        assert flag in help_text, f"{flag} is not exposed by the CLI"
+
+
+def test_cli_writes_all_six_required_reports(mount, tmp_path):
+    assert _cli(mount, tmp_path) == 0
+    out = tmp_path / "rep"
+    for name in (
+        "synthetic_alignment_ablation_results.csv",
+        "synthetic_alignment_ablation_summary.md",
+        "synthetic_alignment_feature_comparison.md",
+        "synthetic_protocol_comparison.md",
+        "synthetic_spatial_ablation.md",
+        "synthetic_well_level_ablation.csv",
+        "synthetic_ablation_preflight.md",
+        "synthetic_ablation_run_environment.json",
+    ):
+        assert (out / name).exists(), f"{name} was not written"
+
+
+def test_cli_run_on_a_fixture_is_never_labelled_real(mount, tmp_path):
+    """A non-audited mount must not produce REAL KAGGLE VALIDATION reports."""
+    real = _mod("real_ablation_reporting")
+    assert _cli(mount, tmp_path) == 0
+    text = (tmp_path / "rep" / "synthetic_alignment_ablation_summary.md").read_text()
+    assert real.SYNTHETIC_BANNER in text
+    assert not text.startswith(f"> # {real.REAL_BANNER}")
+
+
+def test_cli_cache_is_written_then_hit(mount, tmp_path):
+    import json
+
+    assert _cli(mount, tmp_path, reports="r1") == 0
+    first = json.loads((tmp_path / "r1" / "synthetic_ablation_run_environment.json").read_text())
+    assert first["cache_writes"] > 0
+    assert first["cache_hits"] == 0
+
+    assert _cli(mount, tmp_path, reports="r2") == 0
+    second = json.loads((tmp_path / "r2" / "synthetic_ablation_run_environment.json").read_text())
+    assert second["cache_hits"] > 0
+    assert second["cache_writes"] == 0
+
+
+def test_cli_clear_cache_forces_recomputation(mount, tmp_path):
+    import json
+
+    assert _cli(mount, tmp_path, reports="r1") == 0
+    assert _cli(mount, tmp_path, "--clear-cache", reports="r2") == 0
+    second = json.loads((tmp_path / "r2" / "synthetic_ablation_run_environment.json").read_text())
+    assert second["cache_hits"] == 0
+    assert second["cache_writes"] > 0
+
+
+def test_cli_no_spatial_restricts_to_branches_a_and_b(mount, tmp_path):
+    ablation = _mod("ablation")
+    assert _cli(mount, tmp_path, "--no-spatial") == 0
+    results = pd.read_csv(tmp_path / "rep" / "synthetic_alignment_ablation_results.csv")
+    assert set(results["branch"]) == {ablation.BRANCH_A, ablation.BRANCH_B}
+
+
+def test_cli_records_runtime_and_peak_memory(mount, tmp_path):
+    import json
+
+    assert _cli(mount, tmp_path) == 0
+    env = json.loads((tmp_path / "rep" / "synthetic_ablation_run_environment.json").read_text())
+    assert env["runtime_seconds"] > 0
+    assert env["peak_rss_mb"] > 0
+    assert env["preflight_checks_passed"] == env["preflight_checks_total"]
+    assert env["device_selected"] in {"cpu", "gpu"}
+    # The fixture deliberately contains wells too short to mask a suffix, so a
+    # non-zero count is expected here; what matters is that every recorded
+    # failure is a task-construction skip, never a fit or predict error.
+    failures = pd.read_csv(tmp_path / "rep" / "alignment_ablation_failures.csv")
+    assert env["failure_count"] == len(failures)
+    if len(failures):
+        assert set(failures["stage"]) == {"task"}
+
+
+def test_cli_expect_wells_guards_against_a_partial_mount(mount, tmp_path):
+    """A mismatched eligible count must abort before any model is fitted."""
+    with pytest.raises(SystemExit) as exc:
+        _cli(mount, tmp_path, "--expect-wells", "770")
+    assert "expected 770 eligible wells" in str(exc.value)
+    assert not (tmp_path / "rep" / "synthetic_alignment_ablation_results.csv").exists()
+
+
+def test_cached_alignment_features_never_store_a_target(mount, tmp_path):
+    """The cache API must refuse target-like keys outright."""
+    cache_mod = _mod("cache")
+    cache = cache_mod.FeatureCache(tmp_path / "c")
+    with pytest.raises(ValueError):
+        cache.put("k", tvt=np.zeros(3))
+    with pytest.raises(ValueError):
+        cache.put("k", target_values=np.zeros(3))
+
+
+def test_cached_alignment_matches_the_uncached_computation(mount, tmp_path):
+    """A cache hit must return exactly what recomputation would."""
+    features = _mod("features")
+    cache_mod = _mod("cache")
+    data = _mod("data")
+    tasks = _mod("tasks")
+    files = data.discover_wells("train")
+    inp = tasks.make_task(data.load_well(files["TRW006"]), "real").inputs()
+    ref = features.TypewellReference(inp.tw_tvt, inp.tw_gr)
+    gr = features.gr_features(inp)
+    missing = gr["gr_is_missing"] > 0.5
+
+    direct = features.alignment_features(inp, ref, gr["gr_z"], gr_missing=missing)
+    cache = cache_mod.FeatureCache(tmp_path / "c")
+    ctx = {"dataset_version": "test", "fold": 0, "protocol": "unseen_well"}
+    miss = features.cached_alignment_features(
+        inp, ref, gr["gr_z"], gr_missing=missing, cache=cache, cache_context=ctx)
+    hit = features.cached_alignment_features(
+        inp, ref, gr["gr_z"], gr_missing=missing, cache=cache, cache_context=ctx)
+    assert miss["_align_cache_hit"] is False
+    assert hit["_align_cache_hit"] is True
+    for key in ("align_tvt", "align_score", "align_shift", "align_gradient"):
+        np.testing.assert_allclose(direct[key], hit[key], equal_nan=True)
+    assert hit["_align_ok"] == direct["_align_ok"]
+
+
+def test_alignment_cache_key_separates_the_two_protocols(mount, tmp_path):
+    """A masked boundary and a real suffix must never share an artifact."""
+    features = _mod("features")
+    cache_mod = _mod("cache")
+    data = _mod("data")
+    tasks = _mod("tasks")
+    files = data.discover_wells("train")
+    well = data.load_well(files["TRW006"])
+    cache = cache_mod.FeatureCache(tmp_path / "c")
+    for mode, protocol in (("real", "unseen_well"), ("masked", "same_well_masked")):
+        inp = tasks.make_task(well, mode).inputs()
+        ref = features.TypewellReference(inp.tw_tvt, inp.tw_gr)
+        gr = features.gr_features(inp)
+        out = features.cached_alignment_features(
+            inp, ref, gr["gr_z"], gr_missing=gr["gr_is_missing"] > 0.5,
+            cache=cache, cache_context={"dataset_version": "t", "protocol": protocol},
+        )
+        assert out["_align_cache_hit"] is False, f"{mode} wrongly reused another boundary"

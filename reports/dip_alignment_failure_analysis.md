@@ -7,6 +7,68 @@ form. This is enforced in code by `src/model_status.py` and asserted by
 
 ---
 
+## Evidence classification — read this before quoting anything
+
+Findings are separated into three classes and **must not be conflated**. Class
+B is *not* a root cause; it is a mechanism hypothesis awaiting real-data
+confirmation.
+
+### A. Confirmed from real Kaggle data
+
+Established by the completed 770-well run, both protocols, cross-fitted by
+well ID.
+
+| # | Finding | Evidence |
+|---|---|---|
+| A1 | The direct model is decisively worse than Ridge under **both** protocols | +248.202 RMSE (`same_well_masked`), +82.104 RMSE (`unseen_well`) |
+| A2 | Mean alignment confidence is low, and below the 0.20 gate on `same_well_masked` | 0.1577 / 0.3197 |
+| A3 | The fallback path dominates, and dominates far more under the masked protocol | 67.5% / 34.0% of predicted rows |
+| A4 | The failure is concentrated in the **fallback branch**, not the GR correlation | Implied fallback RMSE ≥ 337 ft / ≥ 164 ft — 11.4–11.5× Ridge under both protocols (derivation in §0) |
+| A5 | The masked protocol degrades this model ~1.4× more than it degrades Ridge, tracking the fallback share | 2.88× vs Ridge's 2.04× |
+
+A4 and A5 are arithmetic consequences of A1–A3 and the model's own blend rule.
+They require no assumption about the code and are therefore also class A.
+
+### B. Hypotheses supported only by synthetic diagnostics
+
+Measured on the 40-well synthetic field via
+`scripts/diagnose_dip_alignment.py`. **None of these is a confirmed real-data
+root cause.** The synthetic generator builds `TVT = surface − Z` by definition
+— exactly the relationship this model assumes — so it *flatters* the model.
+A defect visible there is a lower bound on the real problem, but its real
+magnitude, and in some cases whether it is present at all, is unverified.
+
+| # | Hypothesis | Synthetic measurement | Status |
+|---|---|---|---|
+| B1 | The hard-coded unit `dTVT/dZ` coefficient is the dominant error term | empirical coefficient −0.75, not −1.0 | **UNCONFIRMED — the leading hypothesis, not a finding** |
+| B2 | `TVT + Z` is a difference of large numbers, leaking non-planar Z into TVT 1:1 | `std(Z)/std(TVT)` ≈ 1.19; non-planar Z residual 0.21–0.22× the TVT signal | Unconfirmed |
+| B3 | GR amplitude calibration is unstable and clips | gain clipped in 50–57.5% of wells; split-half ratio 1.42–1.90 | Unconfirmed, but *consistent with* the real A2 |
+| B4 | GR/typewell resolutions are incompatible | ~1.37 ft TVT per 201 ft window vs a ~70 ft GR wavelength → ~2% of a cycle | Unconfirmed |
+| B5 | The ±12 ft search is mismatched to ~1.4 ft of evidence | ~17:1 freedom-to-evidence ratio | Unconfirmed |
+| B6 | Extrapolation reach explains the protocol gap | 1.37× fitted span (masked) vs 0.58× (unseen) | Unconfirmed, but *consistent with* the real A5 |
+| B7 | Dip sign and gradient direction are **correct** | 92.5–95% sign agreement; median ratio 0.971 | Unconfirmed (a negative result — needs real confirmation before relying on it) |
+| B8 | Cross-track dip is unidentifiable but harmless | 0.004 ft implied TVT error | Unconfirmed |
+| B9 | The `TVT + Z` sign convention is usually right but weakly determined | correct in 85% of wells; R² margin only 0.041–0.087 | Unconfirmed |
+
+### C. Unresolved questions
+
+| # | Question | What would settle it |
+|---|---|---|
+| C1 | Is B1 true on real data? Is the empirical real `dTVT/dZ` materially different from −1? | Fold-safe real diagnostic: fit the coefficient on fold-train prefixes, evaluate on held-out wells, compare against −1 (see §12) |
+| C2 | What is the real `std(Z)/std(TVT)` ratio, and does non-planar Z genuinely dominate? | Same real diagnostic run |
+| C3 | Is the real Z column elevation (negative-down) or depth (positive-down)? The code hard-codes `+Z` and never tests it. | Real per-well comparison of `std(TVT+Z)` vs `std(TVT−Z)`, reported per well rather than in aggregate |
+| C4 | What is the real typewell GR wavelength and the real TVT traversed per window? | Real diagnostic; the synthetic 70 ft wavelength is an artefact of the generator |
+| C5 | Which of B1–B6 dominates the real error, and in what proportion? | Requires an ablation *of the fallback itself* — deliberately not run, since the model is rejected |
+| C6 | Would replacing the fallback with a fitted-coefficient projection (or with Ridge) rescue the model? | A separate real-data experiment, required before any un-rejection |
+| C7 | Is the real failure uniform across wells, or driven by a subpopulation (e.g. high-curvature or build-section wells)? | Per-well real diagnostics joined to the real well-level results |
+
+**Bottom line.** What is *confirmed* is that the model fails, that it fails
+through its fallback branch, and that the fallback branch is ~11.5× worse than
+Ridge. *Why* the fallback diverges is, at present, a hypothesis (B1/B2) with
+supporting synthetic evidence and no real-data confirmation.
+
+---
+
 ## 0. The result being explained
 
 Completed real validation run: **770 eligible wells**, both protocols,
@@ -117,22 +179,31 @@ pred = anchor + surface_delta - (z_f - z0)
 
 There are three compounding problems in those two lines.
 
-### 1a. The Z term is subtracted with a hard-coded unit coefficient
+### 1a. The Z term is subtracted with a hard-coded unit coefficient — **hypothesis B1, UNCONFIRMED**
 
-The prediction asserts `dTVT/dZ = −1` exactly. It is not fitted, not damped,
-and not bounded. This is the one modelling choice that separates this model
-from the established `GeometricProjection` baseline, which *fits* the same
-transfer coefficient on fold-train wells — and which
-`reports/task_interpretation.md` §5 already identifies as the reason that
-baseline works at all.
+> **This subsection is the leading hypothesis, not a confirmed real-data root
+> cause.** The code fact is verifiable by reading the source; the *magnitude of
+> its contribution on real data* is not yet measured. See C1.
 
-Measured on the synthetic field, the empirical prefix coefficient is
-**−0.75, not −1.0** (`Q1b`). A 25% coefficient error is multiplied by the full
-Z excursion across the predicted region. On real laterals that lever arm is
-hundreds to thousands of feet — in the build section, more — so a coefficient
-error of this size alone generates errors of exactly the observed magnitude.
-Nothing downstream can recover it: the GR blend re-references to this track,
-and the typewell clip only bounds it at the reference-section edge.
+The **code fact** (verifiable, not a measurement): the prediction asserts
+`dTVT/dZ = −1` exactly. It is not fitted, not damped, and not bounded. This is
+the one modelling choice separating this model from the established
+`GeometricProjection` baseline, which *fits* the same transfer coefficient on
+fold-train wells — and which `reports/task_interpretation.md` §5 already
+identifies as the reason that baseline works at all.
+
+The **synthetic measurement** (class B): the empirical prefix coefficient is
+−0.75, not −1.0 (`Q1b`). *If* a comparable discrepancy holds on real data, the
+error is multiplied by the full Z excursion across the predicted region — on
+real laterals hundreds to thousands of feet, more in the build section — and
+would generate errors of the observed order. Nothing downstream could recover
+it: the GR blend re-references to this track, and the typewell clip only bounds
+it at the reference-section edge.
+
+**What is not established:** that the real empirical coefficient differs from
+−1 at all, or by how much. The synthetic field's coefficient is a property of
+its generator. §12 specifies the fold-safe real diagnostic that would settle
+this; until it runs, B1 must not be reported as the cause.
 
 ### 1b. `TVT + Z` is a difference of large numbers
 
@@ -418,23 +489,51 @@ set within each protocol.
 | **C** `ridge_spatial_only` | no | yes |
 | **D** `ridge_align_spatial` | yes | yes |
 
-**Run it:**
+**Run it on Kaggle — validation pass, then the full run:**
 
 ```bash
-python scripts/run_feature_ablation.py --n-splits 5
+# 1. 100-well pass: validates runtime, memory and output shape
+python scripts/run_feature_ablation.py \
+  --n-splits 5 \
+  --max-wells 100 \
+  --cache-dir /kaggle/working/feature_ablation_cache \
+  --reports-dir /kaggle/working/feature_ablation_reports
+
+# 2. full run: all 770 eligible wells
+python scripts/run_feature_ablation.py \
+  --n-splits 5 \
+  --cache-dir /kaggle/working/feature_ablation_cache \
+  --reports-dir /kaggle/working/feature_ablation_reports \
+  --expect-wells 770
 ```
 
-Writes `alignment_spatial_ablation.csv`, `alignment_feature_verdict.csv` and
-`alignment_spatial_ablation.md` into `REPORTS_DIR`, both protocols, deltas
-against branch B.
+`--expect-wells 770` is optional but recommended for the full run: it aborts
+before fitting anything if the mount is partial, rather than silently
+producing a smaller, non-comparable result.
 
-### Status of the ablation numbers
+Writes the six required reports into `--reports-dir`, both protocols, deltas
+against branch B, plus `real_ablation_preflight.md` (the per-branch leakage
+check) and `real_ablation_run_environment.json` (runtime, peak RSS, cache
+statistics, device, well counts).
 
-The A/B/C/D ablation **has not yet been run against the real 770-well mount** —
-the mount is not present in the environment where this analysis was written.
-Rather than quote a number that was not computed, the runner is delivered and
-verified end to end on the synthetic field, and this section is completed from
-the real run.
+### Status of the ablation numbers — NOT YET RUN ON REAL DATA
+
+The A/B/C/D ablation **has not been run against the real 770-well mount.** The
+Kaggle mount is not present in this environment: `/kaggle/input/...` does not
+exist, there is no network access, and no Kaggle credentials are configured.
+Every attempt to reach the data was made and is recorded.
+
+Rather than quote a number that was not computed, the runner is delivered,
+both required command forms are verified to execute end to end, and this
+section will be completed from the real run's output.
+
+**The banner is enforced in code, not by convention.**
+`src.real_ablation_reporting.is_real_run` grants the `REAL KAGGLE VALIDATION`
+header only when the discovered counts match the audited mount exactly (773
+train wells, 770 eligible). Any other run — synthetic, partial, subset — is
+stamped `SYNTHETIC — NOT A COMPETITION RESULT` instead. A synthetic run
+therefore *cannot* be mislabelled as real, even by passing the wrong flag,
+and `test_synthetic_run_is_never_labelled_real` asserts it.
 
 The synthetic verification output is in `reports/synthetic_ablation/` and is
 banner-stamped. **Those figures are not competition results** — the synthetic
@@ -443,54 +542,116 @@ the geometric relationships under test here. They establish only that the
 harness runs, that the branches are paired and cross-fitted, and that the
 verdict logic fires.
 
-### Decision rule, fixed in advance
+### Pre-registered decision rule
 
-`src.ablation.alignment_feature_recommendation` applies a rule chosen before
-seeing the real result:
+`src.ablation.preregistered_decision` / `preregistered_verdict` implement a
+rule fixed **before** any real result was inspected:
 
-- **Keep** the alignment features — as residual/features only, never as a
-  direct predictor or ensemble branch — if and only if they lower global RMSE
-  in **every** contrast (A→B and C→D) under **both** protocols.
-- **Remove** them from the next baseline otherwise.
+**Alignment features** (contrasts A→B and C→D) — keep in the next baseline
+only if they improve global RMSE in **both** protocols **and** do not
+materially degrade median or worst-10 well RMSE. "Material" is a
+pre-registered 2% of the branch-B value (`MATERIAL_DEGRADATION_TOLERANCE`).
+Otherwise remove.
 
-Requiring both contrasts and both protocols is deliberate: a mixed result means
-the features are not carrying reliable signal, and a one-protocol improvement
-is consistent with noise. On the synthetic run the rule returned
-`remove_from_next_baseline` (3 of 4 contrasts against), which confirms the rule
-fires; it is not a statement about the real data.
+**Spatial features** (contrasts A→C and B→D) — keep if they improve the global
+metric **or** give a consistent worst-well improvement across both protocols,
+without material degradation elsewhere and without unacceptable runtime or
+leakage risk. Otherwise remove.
 
-Until the real ablation is run, the Ridge baseline stays exactly as it is. The
-current run is **not** authority to remove the features.
+**Direct `dip_constrained_alignment`** — never promoted to a final prediction
+branch unless a *separate* real-data experiment proves it beats Ridge. It is
+currently REJECTED and blocked in code.
+
+Two design choices are deliberate. Requiring both protocols means a
+one-protocol improvement — which is consistent with noise — is not sufficient.
+Adding the median/worst-10 guard means a branch cannot be kept on a global-RMSE
+win that was bought by inflating the tail, which is the failure mode a
+point-weighted metric hides. The spatial clause is deliberately *looser*: it
+admits a worst-well-only justification, because tail behaviour is the thing an
+offset-well prior is most likely to help.
+
+The rule and its tolerance are unit-tested against synthetic fixtures covering
+keep, remove, one-protocol-only, tail-degradation and worst-well-only cases, so
+the decision logic is verified independently of any data.
+
+**Until the real ablation runs, the Ridge baseline stays exactly as it is.**
+No synthetic result is authority to add or remove a feature.
 
 ---
 
 ## Summary of causes, ranked by contribution
 
-"real" = the 770-well run; "synth" = mechanism evidence from the synthetic
-field (see the provenance note in §0).
+**Class A = confirmed on real data. Class B = synthetic hypothesis, unconfirmed.**
+Only rows 1 and 2 are class A; every "cause" below them is a candidate
+explanation, not an established one.
 
-| # | Cause | Verdict | Evidence | Source |
+| # | Cause | Verdict | Evidence | Class |
 |---|---|---|---|---|
-| 1 | Geometric fallback diverges (`−1·ΔZ` hard-coded, unfitted) | **Primary** | Implied fallback RMSE ≥ 337 / ≥ 164 ft (11.4–11.5× Ridge); empirical `dTVT/dZ` = −0.75 | real + synth |
-| 2 | Fallback dominates via a confidence gate that routes *into* the bad branch | **Primary** | 67.5% / 34.0% fallback; protocol degradation tracks fallback share (2.88× vs Ridge's 2.04×) | real |
-| 3 | GR/typewell resolution incompatibility (~2% of a GR cycle per window) | **Major** | 1.37 ft TVT per 201 ft window vs 70 ft wavelength | synth |
-| 4 | GR amplitude calibration unstable | **Major (trigger)** | Gain clipped in 50–57.5% of wells; split-half ratio 1.42–1.90; consistent with real mean confidence 0.1577 < 0.20 gate | synth + real |
-| 5 | Window/search mis-specification (±12 ft search on 1.4 ft of evidence) | **Contributing** | 17:1 freedom-to-evidence ratio | synth |
-| 6 | Extrapolation reach under the masked protocol | **Contributing** | 1.37× fitted span vs 0.58× | synth |
-| 7 | Per-well bias | **Minor** | 65–67% of per-well RMSE, but cancels across wells | synth |
-| 8 | `TVT + Z` sign convention | **Not the cause** (unverified on real) | Correct in 85% of wells; R² margin only 0.041–0.087 | synth |
-| 9 | Dip sign / gradient direction | **Correct** | 92.5–95% sign agreement; ratio 0.971 | synth |
-| 10 | Cross-track dip unidentifiability | **Not the cause** | 0.004 ft implied error; penalty handles it | synth |
+| 1 | The failure is concentrated in the fallback branch | **CONFIRMED** | Implied fallback RMSE ≥ 337 / ≥ 164 ft (11.4–11.5× Ridge) | **A** |
+| 2 | Fallback dominates via a confidence gate that routes *into* the bad branch | **CONFIRMED** | 67.5% / 34.0% fallback; protocol degradation tracks fallback share (2.88× vs Ridge's 2.04×) | **A** |
+| 3 | *Why* the fallback diverges: hard-coded `−1·ΔZ`, unfitted | **HYPOTHESIS (B1)** | Code fact + synthetic `dTVT/dZ` = −0.75 | B |
+| 4 | `TVT + Z` is a difference of large numbers | **HYPOTHESIS (B2)** | `std(Z)/std(TVT)` ≈ 1.19 (synthetic) | B |
+| 5 | GR amplitude calibration unstable | **HYPOTHESIS (B3)**, consistent with real A2 | Gain clipped in 50–57.5% of wells; split-half ratio 1.42–1.90 | B |
+| 6 | GR/typewell resolution incompatibility (~2% of a GR cycle per window) | **HYPOTHESIS (B4)** | 1.37 ft TVT per 201 ft window vs 70 ft wavelength | B |
+| 7 | Window/search mis-specification (±12 ft search on 1.4 ft of evidence) | **HYPOTHESIS (B5)** | 17:1 freedom-to-evidence ratio | B |
+| 8 | Extrapolation reach under the masked protocol | **HYPOTHESIS (B6)**, consistent with real A5 | 1.37× fitted span vs 0.58× | B |
+| 9 | Dip sign / gradient direction are correct | **HYPOTHESIS (B7)** | 92.5–95% sign agreement; ratio 0.971 | B |
+| 10 | Cross-track dip unidentifiable but harmless | **HYPOTHESIS (B8)** | 0.004 ft implied error | B |
+| 11 | `TVT + Z` sign convention | **HYPOTHESIS (B9)**, weakly determined | Correct in 85% of wells; R² margin only 0.041–0.087 | B |
 
 ### If this model is ever rebuilt
 
-Keep: the dip sign/gradient projection (§3) and the cross-track ridge penalty
-(§4). Replace: the fallback must fit its `dTVT/dZ` transfer coefficient on
-fold-train wells, as `GeometricProjection` already does, and low confidence
-must degrade toward the anchor or toward Ridge — never toward an unbounded
-extrapolation (§8). Re-parameterise: correlate in TVT rather than window-by-
-window in MD (§6). None of this is authorised by this analysis; it is recorded
-so the next attempt does not repeat the same three mistakes.
+Only after C1–C6 are settled on real data. Provisionally: keep the dip
+sign/gradient projection (B7) and the cross-track ridge penalty (B8). Replace
+the fallback so it *fits* its `dTVT/dZ` transfer coefficient on fold-train
+wells, as `GeometricProjection` already does, and so low confidence degrades
+toward the anchor or toward Ridge rather than toward an unbounded extrapolation
+(A4/A2). Re-parameterise the correlation to work in TVT rather than
+window-by-window in MD (B4). None of this is authorised by this analysis; it is
+recorded so the next attempt does not repeat the same mistakes.
+
+---
+
+## 12. Fold-safe real diagnostic for the Z coefficient, dip sign and convention
+
+Specification for the experiment that would move B1, B2, B7 and B9 from class B
+to class A. It is **not** part of the production model and its output must be
+reported separately.
+
+**Constraints, all enforced structurally:**
+
+1. **Never use hidden TVT as an inference feature.** The coefficient is fitted
+   on the *visible prefix only* (`tvt_known[:start]`), which is `TVT_input` and
+   is NaN past the boundary by construction. `InferenceTask` has no `target`
+   attribute, so a diagnostic that tried to read the label would raise.
+2. **Fold-safe.** Fit the transfer coefficient on fold-**train** wells and
+   evaluate it on held-out wells, using the same `make_group_folds` splits as
+   the ablation. A coefficient fitted per-well and evaluated on that same well
+   would be in-sample and would overstate its quality.
+3. **Target used only after prediction.** The held-out `TVT` is read solely to
+   score the already-formed prediction, in the same clearly-marked
+   post-prediction block `scripts/diagnose_dip_alignment.py` already uses, and
+   is asserted by `test_diagnostics_never_read_the_target_into_a_feature`.
+4. **Reported separately** from the production model, in its own file, and
+   never merged into the Ridge baseline decision.
+
+**Measurements, per protocol:**
+
+| Quantity | Method | Settles |
+|---|---|---|
+| Real empirical `dTVT/dZ` | Regress prefix `TVT_input − anchor` on `Z − Z_anchor`, pooled over fold-train wells; report the distribution and compare with the asserted −1 | C1 / B1 |
+| Contribution of the coefficient error | Score the fallback with the *fitted* coefficient vs the hard-coded −1 on held-out wells; the RMSE difference is B1's real contribution | C1, C5 |
+| Real `std(Z)/std(TVT)` and non-planar Z residual | Per-well, prefix only | C2 / B2 |
+| Z sign convention | Per-well `std(TVT+Z)` vs `std(TVT−Z)`, reported as a distribution rather than an aggregate, since a single global answer would hide a mixed convention | C3 / B9 |
+| Real typewell GR wavelength and TVT-per-window | FFT of the typewell GR on its TVT grid; prefix `dTVT/dMD` × window length | C4 / B4 |
+| Dip sign agreement | Projected gradient vs observed prefix `dTVT/dMD`, sign and ratio | B7 |
+
+`scripts/diagnose_dip_alignment.py` already computes the per-well quantities
+(`Q1`, `Q1b`, `Q2`, `Q3`, `Q6`, `Q7`) target-free; what it does **not** yet do
+is the fold-safe fitted-vs-hardcoded comparison, which is the part that would
+actually confirm B1. That comparison is deliberately left unimplemented while
+the model is rejected — building it would only be worthwhile as the first step
+of a rebuild (C6).
 
 ## What was deliberately not done
 
@@ -503,3 +664,9 @@ so the next attempt does not repeat the same three mistakes.
   read only in post-prediction validation diagnostics.
 - The direct dip-constrained model remains **REJECTED** and is blocked from
   final/ensemble paths by `src.model_status.assert_not_rejected`.
+- The real A/B/C/D ablation was **not** run: the Kaggle mount is absent from
+  this environment and there is no network access. No real ablation number is
+  reported anywhere in this document or in the repository.
+- No synthetic figure is presented as a real finding. The `REAL KAGGLE
+  VALIDATION` banner is granted by observed well counts (773/770), not by a
+  caller-supplied flag, so a synthetic run cannot claim it.

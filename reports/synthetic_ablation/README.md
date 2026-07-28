@@ -69,3 +69,20 @@ pointed at the real mount, writing into `REPORTS_DIR`
 | `alignment_ablation_folds.csv` | Per-fold bookkeeping |
 | `dip_alignment_diagnostics_wells.csv` | Per-well answers to the ten questions |
 | `dip_alignment_diagnostics_summary.csv` | Per-protocol summary, one row per question |
+
+## Filename convention (added in the real-run preparation)
+
+Report filenames now follow the **evidence**, not the caller's intent:
+
+- `real_*` is emitted **only** when the discovered well counts match the
+  audited real mount exactly (773 train wells, 770 eligible).
+- Everything else — synthetic, partial, subset — is emitted as `synthetic_*`
+  and carries the `SYNTHETIC — NOT A COMPETITION RESULT` banner.
+
+That is why this directory contains `synthetic_alignment_ablation_summary.md`
+rather than `real_alignment_ablation_summary.md`. A file named `real_*`
+anywhere in this repository is therefore always a real competition result, and
+`src.real_ablation_reporting.is_real_run` is the single place that decides.
+
+The A/B/C/D ablation has **not** been run against the real mount; no `real_*`
+report exists yet.

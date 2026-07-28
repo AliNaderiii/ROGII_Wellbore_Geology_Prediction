@@ -1,0 +1,31 @@
+check,passed,detail,branch
+TVT is never in X,True,28 columns; no column is TVT and none derives from TVT,ridge_no_align
+hidden TVT_input is never in X,True,tvt_known has 0 finite values at/after the boundary (rows 2413:3942),ridge_no_align
+Typewell Geology and formation markers never reach the Test feature matrix,True,"no column derives from Typewell Geology, a formation marker, or TVT",ridge_no_align
+every feature root is a test-available raw column,True,"roots ⊆ ['GR', 'MD', 'TVT_input', 'Typewell GR', 'Typewell TVT', 'X', 'Y', 'Z']",ridge_no_align
+manifest whitelist accepts the matrix,True,28 manifest columns cleared,ridge_no_align
+branch matrix matches its declared configuration,True,"alignment=False (want False), spatial=False (want False)",ridge_no_align
+TVT is never in X,True,32 columns; no column is TVT and none derives from TVT,ridge_baseline
+hidden TVT_input is never in X,True,tvt_known has 0 finite values at/after the boundary (rows 2413:3942),ridge_baseline
+Typewell Geology and formation markers never reach the Test feature matrix,True,"no column derives from Typewell Geology, a formation marker, or TVT",ridge_baseline
+every feature root is a test-available raw column,True,"roots ⊆ ['GR', 'MD', 'TVT_input', 'Typewell GR', 'Typewell TVT', 'X', 'Y', 'Z']",ridge_baseline
+manifest whitelist accepts the matrix,True,32 manifest columns cleared,ridge_baseline
+branch matrix matches its declared configuration,True,"alignment=True (want True), spatial=False (want False)",ridge_baseline
+TVT is never in X,True,34 columns; no column is TVT and none derives from TVT,ridge_spatial_only
+hidden TVT_input is never in X,True,tvt_known has 0 finite values at/after the boundary (rows 2413:3942),ridge_spatial_only
+Typewell Geology and formation markers never reach the Test feature matrix,True,"no column derives from Typewell Geology, a formation marker, or TVT",ridge_spatial_only
+every feature root is a test-available raw column,True,"roots ⊆ ['GR', 'MD', 'TVT_input', 'Typewell GR', 'Typewell TVT', 'X', 'Y', 'Z']",ridge_spatial_only
+manifest whitelist accepts the matrix,True,28 manifest columns cleared,ridge_spatial_only
+branch matrix matches its declared configuration,True,"alignment=False (want False), spatial=True (want True)",ridge_spatial_only
+TVT is never in X,True,38 columns; no column is TVT and none derives from TVT,ridge_align_spatial
+hidden TVT_input is never in X,True,tvt_known has 0 finite values at/after the boundary (rows 2413:3942),ridge_align_spatial
+Typewell Geology and formation markers never reach the Test feature matrix,True,"no column derives from Typewell Geology, a formation marker, or TVT",ridge_align_spatial
+every feature root is a test-available raw column,True,"roots ⊆ ['GR', 'MD', 'TVT_input', 'Typewell GR', 'Typewell TVT', 'X', 'Y', 'Z']",ridge_align_spatial
+manifest whitelist accepts the matrix,True,32 manifest columns cleared,ridge_align_spatial
+branch matrix matches its declared configuration,True,"alignment=True (want True), spatial=True (want True)",ridge_align_spatial
+alignment features are target-free,True,"align_* roots = ['GR', 'MD', 'TVT_input', 'Typewell GR', 'Typewell TVT']",all
+manifest inference provenance,True,every inference-cleared feature traces to test-available roots,all
+public test wells are never used for tuning,True,"blocked IDs ['000d7d20', '00bbac68', '00e12e8b'] are excluded by assert_no_blocked_wells at the universe, fold, fit and results stages",all
+spatial features use only fold-training donor wells,True,7 donor wells; assert_disjoint on the queried well passed,all
+query wells are excluded from their own neighbour set,True,tr00000 is not in the donor set; features_for additionally self-excludes by well_id at query time,all
+no public leaderboard result is used as a training label,True,"targets come only from WellTask.target (TVT for unseen_well, TVT_input for same_well_masked); no external artifact is read",all

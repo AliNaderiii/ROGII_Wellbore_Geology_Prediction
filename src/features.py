@@ -377,6 +377,83 @@ def calibrate_gr_to_reference(
     return (gr_z - o_med) * a + w_med
 
 
+#: Version tag for the established NCC alignment track. Part of the cache key,
+#: so changing the algorithm invalidates every stored artifact.
+NCC_ALIGNMENT_VERSION = "ncc-gr-typewell-v1"
+NCC_ALIGNMENT_WINDOW = 201
+NCC_ALIGNMENT_STRIDE = 50
+NCC_ALIGNMENT_SEARCH = 12.0
+
+
+def cached_alignment_features(
+    task: InferenceTask,
+    ref: TypewellReference,
+    gr_z: np.ndarray,
+    *,
+    gr_missing: np.ndarray,
+    cache=None,
+    cache_context: dict | None = None,
+) -> dict:
+    """Target-free persistent cache for the established NCC alignment track.
+
+    Stores only derived tracks, scores, shifts and gradients. The cache API
+    rejects target-like keys, and the task boundary is part of the key, so a
+    real suffix and a same-well mask can never share an artifact.
+    """
+    if cache is None:
+        return alignment_features(task, ref, gr_z, gr_missing=gr_missing)
+    from src.cache import cache_key
+
+    context = cache_context or {}
+    key = cache_key(
+        dataset_version=context.get("dataset_version", "rogii-mounted-v1"),
+        well_id=task.well_id,
+        fold_id=context.get("fold", "feature"),
+        protocol=context.get("protocol", task.mode),
+        feature_config={
+            "name": NCC_ALIGNMENT_VERSION,
+            "n_rows": task.n_rows,
+            "start": task.start,
+            "stop": task.stop,
+        },
+        alignment_config={
+            "window": NCC_ALIGNMENT_WINDOW,
+            "stride": NCC_ALIGNMENT_STRIDE,
+            "search": NCC_ALIGNMENT_SEARCH,
+        },
+        device_profile={"feature_execution": "cpu"},
+        code_version=NCC_ALIGNMENT_VERSION,
+    )
+    needed = ("align_tvt", "align_score", "align_shift", "align_gradient")
+    hit = cache.get(key)
+    if hit is not None and all(k in hit for k in needed) and len(hit["align_tvt"]) == task.n_rows:
+        out = {k: np.asarray(hit[k], dtype="float64") for k in needed}
+        out["_align_bias"] = float(np.asarray(hit["bias"]).ravel()[0]) if "bias" in hit else 0.0
+        out["_align_ok"] = bool(np.asarray(hit["ok"]).ravel()[0]) if "ok" in hit else True
+        out["_align_gr_correlation"] = (
+            float(np.asarray(hit["gr_correlation"]).ravel()[0]) if "gr_correlation" in hit else np.nan
+        )
+        out["_align_cache_hit"] = True
+        return out
+
+    computed = alignment_features(task, ref, gr_z, gr_missing=gr_missing)
+    try:
+        cache.put(
+            key,
+            align_tvt=np.asarray(computed["align_tvt"], dtype="float64"),
+            align_score=np.asarray(computed["align_score"], dtype="float64"),
+            align_shift=np.asarray(computed["align_shift"], dtype="float64"),
+            align_gradient=np.asarray(computed["align_gradient"], dtype="float64"),
+            bias=np.asarray([computed["_align_bias"]], dtype="float64"),
+            ok=np.asarray([bool(computed["_align_ok"])], dtype=bool),
+            gr_correlation=np.asarray([computed["_align_gr_correlation"]], dtype="float64"),
+        )
+    except (ValueError, OSError):  # a cache write must never fail the run
+        pass
+    computed["_align_cache_hit"] = False
+    return computed
+
+
 def alignment_features(
     task: InferenceTask,
     ref: TypewellReference,
@@ -876,11 +953,13 @@ class WellFeatures:
         self.geom = geometry_features(task)
         self.prefix = prefix_stats(task)
         if alignment:
-            self.align = alignment_features(
+            self.align = cached_alignment_features(
                 task,
                 self.ref,
                 self.gr["gr_z"],
                 gr_missing=self.gr["gr_is_missing"] > 0.5,
+                cache=alignment_cache,
+                cache_context=cache_context,
             )
         else:
             n = task.n_rows

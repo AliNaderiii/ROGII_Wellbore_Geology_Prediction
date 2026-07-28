@@ -98,6 +98,8 @@ def run_ablation_protocol(
     branches=BRANCH_ORDER,
     spatial_config: SpatialConfig | None = None,
     verbose: bool = False,
+    alignment_cache=None,
+    cache_context: dict | None = None,
 ) -> AblationRun:
     """Fit and score all four branches on the same folds, one protocol."""
     run = AblationRun()
@@ -150,6 +152,8 @@ def run_ablation_protocol(
             run.well_results += evaluate_models(
                 models, valid_tasks, protocol, fold.index,
                 verbose=verbose, failures=run.failures,
+                alignment_cache=alignment_cache,
+                cache_context={**(cache_context or {}), "fold": fold.index, "protocol": protocol},
             )
 
         run.fold_records.append(
@@ -262,6 +266,148 @@ def alignment_feature_verdict(summary: pd.DataFrame) -> pd.DataFrame:
                 }
             )
     return pd.DataFrame(rows)
+
+
+#: Pre-registered tolerance for "material degradation" in the secondary
+#: per-well metrics, as a fraction of the branch-B value. Fixed before the real
+#: results were seen; a branch may not be kept if it inflates median or
+#: worst-10 well RMSE by more than this even while global RMSE improves.
+MATERIAL_DEGRADATION_TOLERANCE = 0.02
+
+
+def preregistered_decision(summary: pd.DataFrame) -> pd.DataFrame:
+    """Apply the decision rule fixed before the real results were inspected.
+
+    Alignment features (contrast A->B and C->D):
+        keep only if global RMSE improves in **both** protocols and neither
+        median nor worst-10 well RMSE degrades materially.
+
+    Spatial features (contrast A->C and B->D):
+        keep if global RMSE improves, **or** worst-10 well RMSE improves
+        consistently across both protocols (the rule explicitly allows a
+        worst-well-only justification), and the runtime cost is acceptable.
+
+    Returns one row per (feature group, protocol, contrast) plus the aggregate
+    verdict rows, so the decision can be audited rather than trusted.
+    """
+    empty = pd.DataFrame(
+        columns=[
+            "feature_group", "protocol", "contrast", "context",
+            "global_rmse_without", "global_rmse_with", "delta_global_rmse", "pct_global_rmse",
+            "median_well_rmse_without", "median_well_rmse_with", "delta_median_well_rmse",
+            "pct_median_well_rmse",
+            "worst10_well_rmse_without", "worst10_well_rmse_with", "delta_worst10_well_rmse",
+            "pct_worst10_well_rmse",
+            "improves_global", "improves_worst10",
+            "material_median_degradation", "material_worst10_degradation",
+        ]
+    )
+    if summary is None or summary.empty:
+        return empty
+    rows = []
+    metrics = ("global_rmse", "median_well_rmse", "worst10_well_rmse")
+    contrasts = (
+        ("alignment", BRANCH_A, BRANCH_B, "no_spatial"),
+        ("alignment", BRANCH_C, BRANCH_D, "with_spatial"),
+        ("spatial", BRANCH_A, BRANCH_C, "no_alignment"),
+        ("spatial", BRANCH_B, BRANCH_D, "with_alignment"),
+    )
+    for protocol, group in summary.groupby("protocol", sort=False):
+        indexed = group.set_index("branch")
+        for feature_group, without, with_, context in contrasts:
+            if without not in indexed.index or with_ not in indexed.index:
+                continue
+            row = {
+                "feature_group": feature_group,
+                "protocol": protocol,
+                "contrast": f"{with_} - {without}",
+                "context": context,
+            }
+            for metric in metrics:
+                base = float(indexed.loc[without, metric])
+                cand = float(indexed.loc[with_, metric])
+                row[f"{metric}_without"] = base
+                row[f"{metric}_with"] = cand
+                row[f"delta_{metric}"] = cand - base
+                row[f"pct_{metric}"] = 100.0 * (cand - base) / base if base else np.nan
+            row["improves_global"] = bool(row["delta_global_rmse"] < 0)
+            row["improves_worst10"] = bool(row["delta_worst10_well_rmse"] < 0)
+            # A degradation sitting exactly on the tolerance is *not* material.
+            # The relative epsilon stops a decision flipping on ~1e-16 of
+            # floating-point noise when the delta lands on the boundary.
+            tol = MATERIAL_DEGRADATION_TOLERANCE
+            for metric in ("median_well_rmse", "worst10_well_rmse"):
+                base = abs(row[f"{metric}_without"])
+                budget = tol * base
+                row[f"material_{'median' if metric.startswith('median') else 'worst10'}_degradation"] = bool(
+                    row[f"delta_{metric}"] > budget + 1e-9 * max(base, 1.0)
+                )
+            rows.append(row)
+    return pd.DataFrame(rows) if rows else empty
+
+
+def preregistered_verdict(decision: pd.DataFrame) -> dict:
+    """Collapse the per-contrast decision table into keep/remove per group."""
+    out: dict = {}
+    if decision is None or decision.empty:
+        for group in ("alignment", "spatial"):
+            out[group] = {
+                "decision": "undetermined",
+                "reason": "no contrasts were computed",
+                "protocols_covered": [],
+                "n_contrasts": 0,
+            }
+        return out
+
+    both = {PROTOCOL_A, PROTOCOL_B}
+    for group, sub in decision.groupby("feature_group", sort=False):
+        protocols = sorted(set(sub["protocol"]))
+        covered = both <= set(protocols)
+        improves_global_everywhere = bool(sub["improves_global"].all())
+        no_material = not bool(
+            sub["material_median_degradation"].any() or sub["material_worst10_degradation"].any()
+        )
+        if group == "alignment":
+            keep = covered and improves_global_everywhere and no_material
+            if keep:
+                reason = (
+                    "global RMSE improved in every contrast under both protocols with no "
+                    "material median or worst-10 degradation"
+                )
+            elif not covered:
+                reason = "the rule requires both protocols; only " + ", ".join(protocols) + " was covered"
+            elif not improves_global_everywhere:
+                reason = "global RMSE did not improve in every contrast under both protocols"
+            else:
+                reason = "global RMSE improved but median or worst-10 well RMSE degraded materially"
+        else:
+            # Spatial may also be justified by a consistent worst-well gain.
+            worst_consistent = bool(sub["improves_worst10"].all())
+            keep = covered and (improves_global_everywhere or worst_consistent) and no_material
+            if keep and improves_global_everywhere:
+                reason = "global RMSE improved in every contrast under both protocols"
+            elif keep:
+                reason = (
+                    "global RMSE did not improve everywhere, but worst-10 well RMSE improved "
+                    "consistently across both protocols with no material degradation"
+                )
+            elif not covered:
+                reason = "the rule requires both protocols; only " + ", ".join(protocols) + " was covered"
+            else:
+                reason = (
+                    "neither a consistent global improvement nor a consistent worst-10 "
+                    "improvement was observed"
+                )
+        out[group] = {
+            "decision": "keep_as_features" if keep else "remove_from_next_baseline",
+            "reason": reason,
+            "protocols_covered": protocols,
+            "n_contrasts": int(len(sub)),
+            "n_improving_global": int(sub["improves_global"].sum()),
+            "n_improving_worst10": int(sub["improves_worst10"].sum()),
+            "any_material_degradation": not no_material,
+        }
+    return out
 
 
 def alignment_feature_recommendation(verdict: pd.DataFrame) -> dict:
