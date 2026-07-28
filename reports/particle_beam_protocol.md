@@ -155,3 +155,28 @@ Until then:
 - no PF/BS final ensemble;
 - no PF/BS final submission; and
 - no claim that a lower score from only one protocol is sufficient.
+
+### Robustness gate (post 770-well run)
+
+After the full real run, `scripts/analyze_pf_beam_robustness.py` applies an
+additional paired-error gate before any “next candidate” status:
+
+1. global improvement stable across all five folds (both protocols);
+2. paired well-level bootstrap CI not strongly against the candidate;
+3. improvement not concentrated in a few (or only long) wells.
+
+`ridge_default` stays the fallback. PF/Beam code is never deleted by this
+gate. See `reports/pf_beam_real_decision.md` and
+`reports/pf_beam_failure_analysis.md`.
+
+### Completed real 770-well owner aggregates
+
+| Protocol | ridge_default | +PF | +Beam | +PF+Beam |
+|---|---:|---:|---:|---:|
+| `unseen_well` | 14.423 | 14.429 | 14.432 | 14.419 |
+| `same_well_masked` | 29.486 | 29.406 | 29.406 | 29.388 |
+
+Zero task/fit/predict failures. Combined PF+Beam is best on both protocol
+aggregates; the unseen-well gain is −0.004 RMSE. **Not promoted** pending
+well-level robustness (or after those checks fail the gate). No final
+submission. No public-leaderboard result.

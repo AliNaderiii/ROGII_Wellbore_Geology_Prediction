@@ -636,6 +636,19 @@ def main(argv=None) -> int:
             + "\n",
             encoding="utf-8",
         )
+        # Paired-error / robustness gate (no retrain). Writes pf_beam_*.
+        try:
+            from src.pf_beam_robustness import write_robustness_reports
+
+            write_robustness_reports(
+                reports_dir,
+                paired_well_df,
+                failures=failures_df,
+                environment=None,
+            )
+        except Exception as exc:  # robustness must not discard a completed run
+            if verbose:
+                print(f"      pf/beam robustness analysis skipped: {type(exc).__name__}: {exc}")
 
     spatial_df = pd.DataFrame()
     if args.spatial:
