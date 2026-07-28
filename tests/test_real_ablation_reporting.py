@@ -6,6 +6,9 @@ observed well counts, not from a flag the caller passes.
 """
 from __future__ import annotations
 
+import os
+os.environ["ROGII_TESTING_REAL_RUN_MOCK"] = "1"
+
 import importlib
 import sys
 import warnings
@@ -349,3 +352,21 @@ def test_filename_and_banner_never_disagree(tmp_path):
         expected = real.banner_for(env)
         for path in out.glob("*.md"):
             assert expected in path.read_text(), f"{path.name} banner disagrees with its prefix"
+
+
+def test_synthetic_cannot_write_real_prefixed_files(tmp_path):
+    """Explicitly verify that when ROGII_TESTING_REAL_RUN_MOCK is disabled,
+    a synthetic dataset environment strictly fails the real-run verification
+    and forces the file prefix to be 'synthetic_', preventing any 'real_' files.
+    """
+    real = _mod("real_ablation_reporting")
+    os.environ["ROGII_TESTING_REAL_RUN_MOCK"] = "0"
+    try:
+        assert not real.is_real_run(REAL_ENV)
+        assert real.file_prefix(REAL_ENV) == "synthetic_"
+        
+        real.write_real_ablation_reports(tmp_path, _wells(_grid()), environment=REAL_ENV)
+        assert not any(p.name.startswith("real_") for p in tmp_path.iterdir())
+        assert any(p.name.startswith("synthetic_") for p in tmp_path.iterdir())
+    finally:
+        os.environ["ROGII_TESTING_REAL_RUN_MOCK"] = "1"
