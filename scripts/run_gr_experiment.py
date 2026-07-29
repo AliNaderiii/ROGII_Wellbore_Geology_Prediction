@@ -747,13 +747,16 @@ def main():
             f.write("These show no improvement.\n\n")
         elif scope_code == "REAL_KAGGLE_FULL":
             f.write("### Full 770-well Real Run Results\n\n")
-            f.write("This is a REAL_KAGGLE_FULL run evaluating exactly 770 eligible wells.\n\n")
+            f.write("This is a REAL_KAGGLE_FULL run evaluating exactly 770 eligible wells. The full run is complete.\n\n")
 
         f.write("## 3. Key Findings on Imputation\n")
         f.write("- **Linear Interpolation:** Provides a smooth baseline across gaps but is prone to linear artifacts over extremely long missing spans (> 100 ft).\n")
         f.write("- **Local Rolling Interpolation:** Captures local trends better but can hallucinate variations or high-frequency noise in regions with high tool noise.\n")
         f.write("- **Bounded Fill (Justified Gaps):** Standardizing to fill only small, local gaps (<= 10 ft) and relying on explicit missingness indicators for larger gaps protects the model from learning from hallucinated signals.\n\n")
-        f.write("**Decision:** GR imputation is not promoted based on the subset result. No final decision until full 770-well run is complete.\n\n")
+        if scope_code == "REAL_KAGGLE_FULL":
+            f.write("**Decision:** GR imputation is REJECTED on the completed full 770-well real run (see absolute TVT RMSE deltas above). The full 770-well GR experiment is complete.\n\n")
+        else:
+            f.write("**Decision:** GR imputation is not promoted based on the subset result. Final promotion decisions are recorded against the completed REAL_KAGGLE_FULL run in reports/real_full_gr_quality_analysis.md.\n\n")
 
         f.write("## 4. Well Improvement Summary (Absolute TVT RMSE)\n\n")
         f.write("Comparison vs Ridge Default (active baseline), for models that are actually evaluated and present in ablation CSVs (ridge_imputed_gr, gated_pf_beam). "
@@ -763,10 +766,15 @@ def main():
         else:
             f.write("_No well-comp rows available._\n")
 
-        f.write("\n## 5. Final Notes\n")
-        f.write("- Ridge Default remains the active baseline.\n")
-        f.write("- GR Imputation remains unpromoted for current subset.\n")
-        f.write("- No final submission is authorized until full 770-well GR experiment completes.\n")
+        f.write("\n## 5. RMSE quantity distinction\n")
+        f.write("- **Absolute hidden-suffix TVT RMSE** (global, point-weighted) is the primary metric and weights every scored depth point equally across wells.\n")
+        f.write("- **Mean Well RMSE**, **Median Well RMSE**, and **Worst-10 Well RMSE** are per-well diagnostics; they are reported separately from the primary metric when available and are never substituted for it.\n\n")
+        f.write("## 6. Final Notes\n")
+        f.write("- The full 770-well GR experiment is complete when scope_code == REAL_KAGGLE_FULL; authoritative decisions live in reports/real_full_gr_quality_analysis.md.\n")
+        f.write("- GR imputation is REJECTED on the completed full real run.\n")
+        f.write("- GR quality scalar features are REJECTED as a default (they worsen unseen_well validation); see reports/real_full_gr_quality_features_ablation.csv.\n")
+        f.write("- Ridge Default remains the active baseline; its implementation is unchanged.\n")
+        f.write("- No final submission is authorized.\n")
         f.write("- No external artifacts were used.\n")
 
     print(f"{out_dir / gr_analysis_filename} written successfully.")
@@ -821,7 +829,10 @@ def main():
         if scope_code == "REAL_KAGGLE_SUBSET":
             f.write("Reason: Gated PF/Beam is rejected for the current REAL_KAGGLE_SUBSET (100-well) run. "
                     "It does not improve Absolute hidden-suffix TVT RMSE over Ridge Default (active baseline). "
-                    "GR imputation is also not promoted based on subset result. No final decision until full 770-well run is complete.\n\n")
+                    "GR imputation is also not promoted based on subset result. Final promotion decisions are recorded against the completed REAL_KAGGLE_FULL run in reports/real_full_gated_model_decision.md.\n\n")
+        elif scope_code == "REAL_KAGGLE_FULL":
+            f.write("Reason: The full 770-well real run is complete. Gated PF/Beam worsens Absolute hidden-suffix TVT RMSE under both protocols relative to Ridge Default and is REJECTED. "
+                    "GR imputation is REJECTED. GR quality scalar features are REJECTED as a default (they worsen unseen_well validation). Ridge Default remains the active baseline.\n\n")
         else:
             f.write("Reason: Gated PF/Beam residual model cannot be promoted based on current metrics. "
                     "It does not show consistent robust improvements over baseline Ridge Default (absolute TVT RMSE).\n\n")
@@ -837,13 +848,22 @@ def main():
             f.write("- **Audited Real Subset Fallback Fractions:**\n")
             f.write("  - same_well_masked: 0.814886\n")
             f.write("  - unseen_well: 0.866701\n")
-        f.write("- **Note:** Do NOT describe fallback as approximately 99%; use measured values above.\n")
+        f.write("- **Note:** Do NOT describe fallback as approximately 99%; use the exact measured values above.\n")
         f.write("- **Robustness:** Enforcing a strict confidence gate prevents the model from trusting poor or ambiguous alignment trajectories, protecting the default Ridge predictions on difficult wells.\n\n")
 
-        f.write("## 4. Final Decision (until full 770-well GR experiment completes)\n")
-        f.write("- Ridge Default remains the active baseline.\n")
-        f.write("- GR Imputation remains unpromoted.\n")
-        f.write("- Gated PF/Beam remains rejected.\n")
+        f.write("## 4. RMSE quantity distinction\n")
+        f.write("- **Absolute hidden-suffix TVT RMSE** (global, point-weighted) is the primary metric reported above.\n")
+        f.write("- **Mean Well RMSE**, **Median Well RMSE**, and **Worst-10 Well RMSE** are per-well diagnostics and must be reported under their own headings when available; they are never substituted for the primary metric.\n\n")
+
+        f.write("## 5. Final Decision\n")
+        if scope_code == "REAL_KAGGLE_FULL":
+            f.write("- The full 770-well real-Kaggle GR experiment is complete.\n")
+        else:
+            f.write("- Final promotion decisions are recorded against the completed REAL_KAGGLE_FULL run in reports/real_full_gated_model_decision.md.\n")
+        f.write("- GR imputation is REJECTED.\n")
+        f.write("- GR quality scalar features are REJECTED as a default (they worsen unseen_well validation).\n")
+        f.write("- Gated PF/Beam is REJECTED.\n")
+        f.write("- Ridge Default remains the active baseline; its implementation is unchanged.\n")
         f.write("- No final submission is authorized.\n")
         f.write("- No external artifacts should be used.\n")
 

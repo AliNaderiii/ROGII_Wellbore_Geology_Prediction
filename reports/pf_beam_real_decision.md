@@ -1,6 +1,17 @@
-# PF + Beam robustness decision
+# PF + Beam / Gated PF/Beam robustness decision
 
-**Decision: DO NOT keep as next candidate — preserve ridge_default.**
+**Decision: REJECTED — preserve ridge_default.**
+
+This report covers two related PF/Beam evaluations:
+
+1. The **plain** PF / Beam / PF+Beam branches that always emit their
+   trajectory (prior real 770-well four-branch comparison).
+2. The **confidence-gated** PF/Beam residual branch evaluated in the
+   completed REAL_KAGGLE_FULL GR experiment (770 wells, 0 failures).
+
+The completed real GR experiment is the authoritative evidence for the
+gated variant and is reported in detail in
+`real_full_gated_model_decision.md`.
 
 ## Evidence classification — read this before quoting anything
 
@@ -8,77 +19,83 @@ Findings are separated into three classes and **must not be conflated**.
 
 ### A. Real Kaggle validation
 
-Established by the completed 770-well PF/Beam run, both protocols, cross-fitted by well ID, zero task/fit/predict failures. Global point-level RMSE figures below are run-owner aggregates from that run (real 770-well PF/Beam validation, both protocols, cross-fitted by well ID, zero task/fit/predict failures (run-owner aggregate)).
+Established by completed 770-well real-Kaggle runs, both protocols,
+cross-fitted by well ID, zero task/fit/predict failures. Global
+point-level RMSE figures below are run-owner aggregates from those runs.
 
 ### B. Synthetic verification
 
-Harness checks under `reports/synthetic_validation/` and `reports/synthetic_ablation/`. Banner-stamped `SYNTHETIC — NOT A COMPETITION RESULT`. **Not competition results.** No synthetic RMSE is used in this decision.
+Harness checks under `reports/synthetic_validation/` and
+`reports/synthetic_ablation/`. Banner-stamped
+`SYNTHETIC — NOT A COMPETITION RESULT`. **Not competition results.** No
+synthetic RMSE is used in this decision.
 
 ### C. Public leaderboard results
 
-**PUBLIC LEADERBOARD: none.** No submission was created from the PF/Beam experiment, and no public-leaderboard score is claimed or available for this branch.
+**PUBLIC LEADERBOARD: none.** No submission was created from the PF/Beam
+or gated PF/Beam experiments, and no public-leaderboard score is claimed
+or available for this branch.
 
 ## Pre-registered decision rule
 
-1. Keep `ridge_particle_beam` as the **next candidate** only if the global improvement is stable across all five folds **and** the paired confidence interval is not strongly against the candidate.
-2. Do **not** use it as final if the improvement is caused only by a small number of wells (or only by long wells).
+1. Promote a candidate only if the global improvement is stable across
+   all five folds **and** the paired confidence interval is not strongly
+   against the candidate.
+2. Do **not** use it as final if the improvement is caused only by a
+   small number of wells (or only by long wells).
 3. Preserve `ridge_default` as the fallback in every case.
 4. Do not delete PF or Beam code.
 5. Do not start external artifacts.
 6. Do not use the direct dip-constrained alignment model.
 7. Do not create a final submission from this analysis.
 
-## Real Kaggle validation — owner global RMSE
+## Completed full 770-well run status
 
-Protocols are separate and are **never averaged**. Failures recorded for the completed run: **0**.
+The full real-Kaggle 770-well GR experiment is **complete**:
 
-| source | validation | protocol | model | n_wells | n_failures | global_rmse | delta_vs_default |
-|---|---|---|---|---|---|---|---|
-| owner_aggregate | REAL KAGGLE VALIDATION | unseen_well | ridge_default | 770 | 0 | 14.4230 | 0.0000 |
-| owner_aggregate | REAL KAGGLE VALIDATION | unseen_well | ridge_particle_filter | 770 | 0 | 14.4290 | 0.0060 |
-| owner_aggregate | REAL KAGGLE VALIDATION | unseen_well | ridge_beam_search | 770 | 0 | 14.4320 | 0.0090 |
-| owner_aggregate | REAL KAGGLE VALIDATION | unseen_well | ridge_particle_beam | 770 | 0 | 14.4190 | -0.0040 |
-| owner_aggregate | REAL KAGGLE VALIDATION | same_well_masked | ridge_default | 770 | 0 | 29.4860 | 0.0000 |
-| owner_aggregate | REAL KAGGLE VALIDATION | same_well_masked | ridge_particle_filter | 770 | 0 | 29.4060 | -0.0800 |
-| owner_aggregate | REAL KAGGLE VALIDATION | same_well_masked | ridge_beam_search | 770 | 0 | 29.4060 | -0.0800 |
-| owner_aggregate | REAL KAGGLE VALIDATION | same_well_masked | ridge_particle_beam | 770 | 0 | 29.3880 | -0.0980 |
+- data_source: real_kaggle
+- validation_scope: REAL_KAGGLE_FULL
+- train wells discovered: 773
+- eligible wells: 770
+- wells evaluated: 770
+- failures: 0
 
-| Protocol | ridge_default | ridge_particle_beam | delta (cand − default) |
-|---|---:|---:|---:|
-| `unseen_well` | 14.423 | 14.419 | -0.004 |
-| `same_well_masked` | 29.486 | 29.388 | -0.098 |
+Stale "no final decision until full 770 run" placeholder language has been
+removed. The decisions recorded below are final for this branch.
 
-Full four-branch owner table (global point-level RMSE):
+## Real Kaggle validation — Gated PF/Beam (authoritative, full 770)
 
-| Protocol | ridge_default | +PF | +Beam | +PF+Beam |
+Primary metric: **Absolute hidden-suffix TVT RMSE** (global,
+point-weighted). Protocols are separate and are **never averaged**.
+Failures recorded for the completed run: **0**.
+
+| Protocol | Ridge Default | Gated PF/Beam | Delta (cand − default) | Measured Fallback Fraction |
 |---|---:|---:|---:|---:|
-| `unseen_well` | 14.423 | 14.429 | 14.432 | **14.419** |
-| `same_well_masked` | 29.486 | 29.406 | 29.406 | **29.388** |
+| `same_well_masked` | 29.4861 | 46.0597 | +16.5736 | 0.781749 |
+| `unseen_well` | 14.4229 | 14.7479 | +0.3250 | 0.845084 |
 
-On the aggregates alone, the combined PF+Beam branch is the best of the four under both protocols. The unseen-well gain is very small (−0.004 RMSE). No statistical significance is claimed from these two scalars.
+Gated PF/Beam **worsens** the primary Absolute hidden-suffix TVT RMSE
+under **both** protocols. The confidence gate triggers fallback on the
+exact measured fractions above (0.781749 / 0.845084); fallback is
+**never** described as "approximately 99%" and is not approximated.
 
-## Per-well / fold / bootstrap analysis
+Related per-protocol diagnostics (Mean Well RMSE, Median Well RMSE,
+Worst-10 Well RMSE) are not supplied by the run-owner aggregate and are
+not fabricated; those quantities must be reported separately from the
+primary metric if and when they become available from a per-well
+artifact.
 
-**Unavailable in this checkout.** The cross-fitted `particle_beam_wells.csv` (per-well SSE, n_points, fold, prefix/suffix length, GR missingness, PF/Beam diagnostics) was not present. Without it the following quantities cannot be computed and are **not fabricated**:
+## Real Kaggle validation — plain PF / Beam / PF+Beam (owner global RMSE)
 
-1. Per-well RMSE delta (`ridge_particle_beam − ridge_default`)
-2. Number and percentage of wells improved / degraded
-3. Fold-level RMSE deltas and five-fold stability
-4. Bootstrap CI for the global RMSE delta
-5. Paired bootstrap CI over wells
-6. Mean and median well-level delta; worst-10 delta
-7. Error by GR missingness / hidden suffix length / prefix length
-8. PF and Beam confidence and fallback rates
-9. Whether the gain is concentrated in a few long wells
-
-The CSV companions `pf_beam_paired_well_deltas.csv`, `pf_beam_fold_deltas.csv`, and `pf_beam_bootstrap_ci.csv` record the owner global deltas and mark well-/fold-/bootstrap-level fields as `UNAVAILABLE`. Re-run:
-
-```bash
-python scripts/analyze_pf_beam_robustness.py \
-  --reports-dir /path/to/particle_beam_reports
-```
-
-against the completed run's `particle_beam_wells.csv` to populate them without retraining.
+The four-branch plain (non-gated) comparison previously reported
+global-level improvements for the combined PF+Beam branch
+(`ridge_particle_beam`), but per-well diagnostics were unavailable in
+this checkout. With the completed gated run showing a decisive
+regression even after a strict confidence gate, and given that the
+plain-branch unseen-well gain was −0.004 RMSE with no per-well/fold/
+bootstrap verification, the plain PF/Beam branches are likewise not
+promoted. They remain available as explicit diagnostics and are not
+deleted.
 
 ## Decision
 
@@ -90,27 +107,29 @@ against the completed run's `particle_beam_wells.csv` to populate them without r
 
 **delete_pf_beam_code = `False`**
 
-### Reasons
+Specifically:
 
-- Owner-supplied global RMSE only: unseen_well delta -0.004 (14.423 → 14.419); same_well_masked delta -0.098 (29.486 → 29.388).
-- Per-well table was not available in this checkout, so fold stability, paired bootstrap CI, improved/degraded well counts, and concentration cannot be verified.
-- Under the pre-registered rule, ridge_particle_beam is NOT kept as the next candidate until those robustness checks pass on the cross-fitted well-level artifact.
-- ridge_default remains the default and the fallback. PF/Beam code is retained. No final submission is authorised.
-
-### Applied outcome
-
-- **Default predictor:** `ridge_default` (`RidgeBaseline(alignment_features=False, spatial=None)`).
-- **Next candidate:** not promoted from this analysis
-.
-- **PF and Beam code:** retained (`src/particle_filter.py`, `src/beam_search.py`, Ridge opt-in flags).
-- **Direct dip-constrained alignment:** still REJECTED (`src/model_status.py`).
+- **Gated PF/Beam:** REJECTED (+16.5736 `same_well_masked`, +0.3250
+  `unseen_well`; measured fallback fractions 0.781749 / 0.845084).
+- **Plain PF / Beam / PF+Beam:** not promoted; retained for diagnostics.
+- **GR imputation:** REJECTED (see `real_full_gr_quality_analysis.md`).
+- **GR quality scalar features:** REJECTED as a default (worsen
+  `unseen_well`; see `real_full_gr_quality_analysis.md` and
+  `real_full_gr_quality_features_ablation.csv`).
+- **Active baseline:** `ridge_default`
+  (`RidgeBaseline(alignment_features=False, spatial=None)`). The Ridge
+  Default implementation is **not changed**.
+- **Direct dip-constrained alignment:** still REJECTED
+  (`src/model_status.py`).
 - **External artifacts:** not used.
 - **Final submission:** not created.
 
 ## Synthetic verification
 
-Status: harness-only under `reports/synthetic_*` (SYNTHETIC — NOT A COMPETITION RESULT). Not used for this decision.
+Status: harness-only under `reports/synthetic_*`
+(SYNTHETIC — NOT A COMPETITION RESULT). Not used for this decision.
 
 ## Public leaderboard results
 
-Status: **none** (PUBLIC LEADERBOARD). No PF/Beam submission exists; no LB number is reported.
+Status: **none** (PUBLIC LEADERBOARD). No PF/Beam or gated-PF/Beam
+submission exists; no LB number is reported.

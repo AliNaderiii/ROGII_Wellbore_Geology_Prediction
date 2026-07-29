@@ -30,6 +30,11 @@ reports/task_presentation_images/
 # only the UNAVAILABLE owner-aggregate placeholder schema (no well IDs).
 !reports/pf_beam_real_decision.md
 !reports/pf_beam_failure_analysis.md
+# Authored full-770 GR experiment decision documents and aggregate CSV.
+# Contain only run-owner aggregate RMSEs plus methodology; no per-well competition data.
+!reports/real_full_gr_quality_analysis.md
+!reports/real_full_gated_model_decision.md
+!reports/real_full_gr_quality_features_ablation.csv
 !reports/pf_beam_paired_well_deltas.csv
 !reports/pf_beam_fold_deltas.csv
 !reports/pf_beam_bootstrap_ci.csv
