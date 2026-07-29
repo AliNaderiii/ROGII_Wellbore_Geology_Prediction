@@ -156,6 +156,21 @@ class WellResult:
     beam_fallback_fraction: float = np.nan
     beam_failure_reason: str = ""
     beam_cache_hit: bool | None = None
+    # Optional model-training diagnostics.  They are populated only when a
+    # model exposes them; legacy baselines remain unchanged.
+    neural_architecture: str = ""
+    neural_parameter_count: int = 0
+    neural_selected_epochs: int = 0
+    neural_correction_mean_abs: float = np.nan
+    neural_fallback: bool | None = None
+    hybrid_weight_neural: float = np.nan
+    hybrid_weight_anchor: float = np.nan
+    gate_accepted: bool | None = None
+    gate_confidence_threshold: float = np.nan
+    gate_max_correction: float = np.nan
+    gate_activation: bool | None = None
+    gate_correction_magnitude: float = np.nan
+    gate_fallback_exact_ridge: bool | None = None
 
 
 def _trajectory_curvature_deg_per_1000ft(task) -> float:
@@ -265,6 +280,19 @@ def score_well(
         beam_fallback_fraction=float(diagnostics.get("beam_fallback_fraction", np.nan)),
         beam_failure_reason=str(diagnostics.get("beam_failure_reason", "")),
         beam_cache_hit=diagnostics.get("beam_cache_hit"),
+        neural_architecture=str(diagnostics.get("neural_architecture", "")),
+        neural_parameter_count=int(diagnostics.get("neural_parameter_count", 0) or 0),
+        neural_selected_epochs=int(diagnostics.get("neural_selected_epochs", 0) or 0),
+        neural_correction_mean_abs=float(diagnostics.get("neural_correction_mean_abs", np.nan)),
+        neural_fallback=diagnostics.get("neural_fallback"),
+        hybrid_weight_neural=float(diagnostics.get("hybrid_weight_neural", np.nan)),
+        hybrid_weight_anchor=float(diagnostics.get("hybrid_weight_anchor", np.nan)),
+        gate_accepted=diagnostics.get("gate_accepted"),
+        gate_confidence_threshold=float(diagnostics.get("gate_confidence_threshold", np.nan)),
+        gate_max_correction=float(diagnostics.get("gate_max_correction", np.nan)),
+        gate_activation=diagnostics.get("gate_activation"),
+        gate_correction_magnitude=float(diagnostics.get("gate_correction_magnitude", np.nan)),
+        gate_fallback_exact_ridge=diagnostics.get("gate_fallback_exact_ridge"),
     )
 
 
@@ -620,6 +648,13 @@ def run_cross_fitted_protocol(
                      "n_validation_wells_excluded": len(valid_ids)}
                 )
 
+        model_fit_reports = {}
+        for model_name, fitted_model in models.items():
+            report = getattr(fitted_model, "training_report", None)
+            if not report:
+                report = getattr(fitted_model, "fit_report", None)
+            if report:
+                model_fit_reports[model_name] = report
         run.fold_records.append(
             {
                 "protocol": protocol,
@@ -627,6 +662,7 @@ def run_cross_fitted_protocol(
                 "n_train_wells": len(train_tasks),
                 "n_valid_wells": len(valid_tasks),
                 "seconds": time.perf_counter() - t0,
+                "model_fit_reports": model_fit_reports,
             }
         )
         if verbose:

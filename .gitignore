@@ -24,6 +24,8 @@ reports/task_presentation_images/
 !reports/dip_alignment_failure_analysis.md
 !reports/real_770_ablation_decision.md
 !reports/particle_beam_protocol.md
+!reports/neural_protocol.md
+!reports/neural_phase1_status.md
 # Authored PF/Beam robustness decision and failure analysis. Contain only
 # run-owner aggregate RMSEs plus methodology; no per-well competition data.
 # Machine-generated well/fold/bootstrap CSVs stay ignored unless they hold

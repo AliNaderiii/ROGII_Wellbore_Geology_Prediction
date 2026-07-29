@@ -19,6 +19,8 @@ that must not be redistributed).
 | `pf_beam_paired_well_deltas.csv`, `pf_beam_fold_deltas.csv`, `pf_beam_bootstrap_ci.csv` | Paired well/fold/bootstrap tables (or UNAVAILABLE placeholders when well-level artifacts are absent) |
 | `synthetic_validation/` | Harness-verification run on a **synthetic** field — banner-stamped, never a competition result |
 | `geoanchor_experiment.md` | Pre-registration of the controlled GeoAnchor experiment (arms A–E: affine GR calibration, multi-branch alignment, bimodal uncertainty, prefix pseudo-holdout, well-level GBDT gate for PF/Beam corrections): ideas mapped to the studied public notebooks, forbidden list, gate rules, decision rule |
+| `neural_protocol.md` | Leakage-safe PyTorch MLP/GRU/TCN residual protocol, fold-safe training, hybrid gate and Kaggle execution instructions |
+| `neural_phase1_status.md` | Phase-1 implementation status; explicitly separates unavailable real-data evidence from synthetic plumbing evidence |
 | `synthetic_geoanchor/` | Executed GeoAnchor A–E run on a **synthetic** field — banner-stamped `synthetic_geoanchor_*` tables/JSON, never a competition result |
 
 ## Generated — git-ignored, written by the runner
