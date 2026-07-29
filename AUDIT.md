@@ -35,7 +35,8 @@ python scripts/smoke_test_loader.py --expect-train 773 --expect-test 3 --full-sc
 python scripts/run_feature_ablation.py     # historical A/B/C/D Ridge feature ablation
 python scripts/run_validation.py --particle-filter --beam-search --max-wells 100
 python scripts/diagnose_dip_alignment.py   # REJECTED dip-alignment diagnostics
-python -m pytest tests -q                  # 285 tests, synthetic fixtures only
+python scripts/run_neural_experiment.py --expect-train 773 --expect-test 3  # diagnostic only; no submission
+python -m pytest tests -q                  # repository + neural safety tests, synthetic fixtures only
 ```
 
 ### Real A/B/C/D ablation on Kaggle
