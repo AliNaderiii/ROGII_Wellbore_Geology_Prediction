@@ -1,5 +1,5 @@
-protocol,model,global_rmse,mean_well_rmse,median_well_rmse,worst_10_rmse,average_fallback_fraction,data_source
-same_well_masked,gated_pf_beam,2.4093519948679565,1.8334668982084927,1.4180160098608856,4.551050675894692,0.14987084917475044,synthetic
-same_well_masked,ridge_default,2.40940900945975,1.8332864360816727,1.4180160098608856,4.5519770039754395,0.0,synthetic
-unseen_well,gated_pf_beam,2.420504917163819,1.80762155320704,1.469795786780017,4.548550486605167,0.14784926390689335,synthetic
-unseen_well,ridge_default,2.419892664657483,1.8071948033981318,1.469795786780017,4.547804678003138,0.0,synthetic
+protocol,model,global_rmse,mean_well_rmse,median_well_rmse,worst_10_rmse,average_fallback_fraction,n_wells_evaluated,data_source,validation_scope,metric_definition,target_definition
+same_well_masked,gated_pf_beam,2.4093519948679565,1.8334668982084927,1.4180160098608856,4.551050675894692,0.14987084917475044,100,synthetic,SYNTHETIC,Absolute hidden-suffix TVT RMSE,TVT hidden suffix
+same_well_masked,ridge_default,2.40940900945975,1.8332864360816727,1.4180160098608856,4.5519770039754395,0.0,100,synthetic,SYNTHETIC,Absolute hidden-suffix TVT RMSE,TVT hidden suffix
+unseen_well,gated_pf_beam,2.420504917163819,1.80762155320704,1.469795786780017,4.548550486605167,0.14784926390689335,100,synthetic,SYNTHETIC,Absolute hidden-suffix TVT RMSE,TVT hidden suffix
+unseen_well,ridge_default,2.419892664657483,1.8071948033981318,1.469795786780017,4.547804678003138,0.0,100,synthetic,SYNTHETIC,Absolute hidden-suffix TVT RMSE,TVT hidden suffix
