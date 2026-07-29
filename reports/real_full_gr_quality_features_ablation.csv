@@ -1,0 +1,5 @@
+protocol,model,global_rmse,mean_well_rmse,median_well_rmse,worst_10_rmse,average_fallback_fraction,n_wells_evaluated,data_source,validation_scope,metric_definition,target_definition
+same_well_masked,ridge_default,29.4861,,,,0.0,770,real_kaggle,REAL_KAGGLE_FULL,Absolute hidden-suffix TVT RMSE,TVT hidden suffix
+same_well_masked,ridge_gr_quality,29.2005,,,,0.0,770,real_kaggle,REAL_KAGGLE_FULL,Absolute hidden-suffix TVT RMSE,TVT hidden suffix
+unseen_well,ridge_default,14.4229,,,,0.0,770,real_kaggle,REAL_KAGGLE_FULL,Absolute hidden-suffix TVT RMSE,TVT hidden suffix
+unseen_well,ridge_gr_quality,14.4707,,,,0.0,770,real_kaggle,REAL_KAGGLE_FULL,Absolute hidden-suffix TVT RMSE,TVT hidden suffix
