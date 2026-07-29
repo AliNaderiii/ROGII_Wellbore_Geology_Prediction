@@ -1,0 +1,9 @@
+protocol,candidate_arm,n_paired_wells,n_improved,n_degraded,n_unchanged,frac_improved
+same_well_masked,ridge_affine_cal,240,112,128,0,0.4666666666666667
+unseen_well,ridge_affine_cal,240,118,122,0,0.49166666666666664
+same_well_masked,ridge_multibranch,240,112,128,0,0.4666666666666667
+unseen_well,ridge_multibranch,240,109,131,0,0.45416666666666666
+same_well_masked,ridge_affine_multibranch,240,123,117,0,0.5125
+unseen_well,ridge_affine_multibranch,240,105,135,0,0.4375
+same_well_masked,ridge_gated_gbdt,240,90,41,109,0.375
+unseen_well,ridge_gated_gbdt,240,60,39,141,0.25

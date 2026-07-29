@@ -1,0 +1,112 @@
+{
+  "data_source": "synthetic_field",
+  "n_train_wells_discovered": 240,
+  "n_eligible_wells": 240,
+  "n_wells_evaluated": 240,
+  "blocked_wells_in_validation": 0,
+  "blocked_public_test_wells": [
+    "000d7d20",
+    "00bbac68",
+    "00e12e8b"
+  ],
+  "max_wells": null,
+  "n_splits": 5,
+  "inner_splits": 5,
+  "tune_splits": 3,
+  "seed": 0,
+  "device": "cpu",
+  "label": "synthetic-240",
+  "geoanchor_version": "geoanchor-controlled-experiment-v1",
+  "git_commit": "d98b801359c4e104e698124877aa7424ab67f042",
+  "experiment": "geoanchor controlled experiment, arms A-E",
+  "final_submission_created": false,
+  "is_real_run": false,
+  "python": "3.11.2",
+  "platform": "Linux-6.1.158+-x86_64-with-glibc2.36",
+  "runtime_seconds_total": 570.527,
+  "peak_rss_mb": 712.6,
+  "n_bootstrap": 2000,
+  "fold_records": [
+    {
+      "protocol": "same_well_masked",
+      "fold": 0,
+      "n_train_wells": 192,
+      "n_valid_wells": 48,
+      "n_arms_fitted": 5,
+      "seconds": 71.6596597759999
+    },
+    {
+      "protocol": "same_well_masked",
+      "fold": 1,
+      "n_train_wells": 192,
+      "n_valid_wells": 48,
+      "n_arms_fitted": 5,
+      "seconds": 49.256198037000104
+    },
+    {
+      "protocol": "same_well_masked",
+      "fold": 2,
+      "n_train_wells": 192,
+      "n_valid_wells": 48,
+      "n_arms_fitted": 5,
+      "seconds": 49.55140585499976
+    },
+    {
+      "protocol": "same_well_masked",
+      "fold": 3,
+      "n_train_wells": 192,
+      "n_valid_wells": 48,
+      "n_arms_fitted": 5,
+      "seconds": 51.508110103000035
+    },
+    {
+      "protocol": "same_well_masked",
+      "fold": 4,
+      "n_train_wells": 192,
+      "n_valid_wells": 48,
+      "n_arms_fitted": 5,
+      "seconds": 49.8586285880001
+    },
+    {
+      "protocol": "unseen_well",
+      "fold": 0,
+      "n_train_wells": 192,
+      "n_valid_wells": 48,
+      "n_arms_fitted": 5,
+      "seconds": 88.88823730899912
+    },
+    {
+      "protocol": "unseen_well",
+      "fold": 1,
+      "n_train_wells": 192,
+      "n_valid_wells": 48,
+      "n_arms_fitted": 5,
+      "seconds": 50.91480289999981
+    },
+    {
+      "protocol": "unseen_well",
+      "fold": 2,
+      "n_train_wells": 192,
+      "n_valid_wells": 48,
+      "n_arms_fitted": 5,
+      "seconds": 52.95147652600008
+    },
+    {
+      "protocol": "unseen_well",
+      "fold": 3,
+      "n_train_wells": 192,
+      "n_valid_wells": 48,
+      "n_arms_fitted": 5,
+      "seconds": 52.90256275399952
+    },
+    {
+      "protocol": "unseen_well",
+      "fold": 4,
+      "n_train_wells": 192,
+      "n_valid_wells": 48,
+      "n_arms_fitted": 5,
+      "seconds": 53.02692771799957
+    }
+  ],
+  "generated_unix": 1785326325
+}

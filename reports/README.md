@@ -18,6 +18,8 @@ that must not be redistributed).
 | `pf_beam_failure_analysis.md` | Paired-error / failure analysis; separates real, synthetic, and public-LB evidence |
 | `pf_beam_paired_well_deltas.csv`, `pf_beam_fold_deltas.csv`, `pf_beam_bootstrap_ci.csv` | Paired well/fold/bootstrap tables (or UNAVAILABLE placeholders when well-level artifacts are absent) |
 | `synthetic_validation/` | Harness-verification run on a **synthetic** field — banner-stamped, never a competition result |
+| `geoanchor_experiment.md` | Pre-registration of the controlled GeoAnchor experiment (arms A–E: affine GR calibration, multi-branch alignment, bimodal uncertainty, prefix pseudo-holdout, well-level GBDT gate for PF/Beam corrections): ideas mapped to the studied public notebooks, forbidden list, gate rules, decision rule |
+| `synthetic_geoanchor/` | Executed GeoAnchor A–E run on a **synthetic** field — banner-stamped `synthetic_geoanchor_*` tables/JSON, never a competition result |
 
 ## Generated — git-ignored, written by the runner
 
@@ -50,6 +52,7 @@ locally):
 | `particle_beam_diagnostics.csv`, `particle_beam_failures.csv` | Per-well confidence, branch spread, smoothness, fallback/cache status and explicit failures |
 | `particle_beam_ablation.md`, `particle_beam_run_environment.json` | Narrative comparison and reproducibility/runtime record; never a submission |
 | `pf_beam_real_decision.md`, `pf_beam_failure_analysis.md`, `pf_beam_*_{deltas,ci}.csv` | Post-run paired-error robustness (`scripts/analyze_pf_beam_robustness.py`); no retrain |
+| `synthetic_geoanchor_*` | GeoAnchor arms A–E paired comparison, gate diagnostics, fold stability, bootstrap CIs, stratified tables and decision report (`scripts/run_geoanchor_experiment.py`); prefixed `synthetic_` unless the audited 773/770 real well counts are discovered |
 
 Audit-phase outputs (`input_inventory.md`, `dataset_schema.csv`,
 `well_summary.csv`, `data_quality_initial.md`, `sample_submission_audit.md`,

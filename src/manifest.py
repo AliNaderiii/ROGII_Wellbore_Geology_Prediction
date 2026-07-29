@@ -768,6 +768,96 @@ DERIVED_FEATURES: tuple[FeatureSpec, ...] = (
             ("beam_fallback", "One when beam expansion uses only the prefix/geometry fallback.", "ridge beam-search opt-in"),
         )
     ),
+    # Controlled GeoAnchor experiment features (arms B/C/D). Raw roots are
+    # strictly GR, Typewell GR, Typewell TVT, MD, and the visible TVT_input
+    # prefix: the affine calibration fits alpha/beta on prefix rows only, and
+    # the multi-branch datum scan compares GR-to-GR without reading any TVT
+    # label on hidden rows. Used only by the leakage-gated experiment in
+    # src/geoanchor.py; none of these columns is in the default Ridge matrix.
+    *tuple(
+        _derived(
+            name,
+            "GR, Typewell GR, Typewell TVT, TVT_input (prefix only)",
+            notes,
+            risk="none — alpha/beta fitted strictly on prefix rows with a-priori sanity bounds",
+            used_by=used_by,
+        )
+        for name, notes, used_by in (
+            ("acal_alpha", "Prefix-only affine gain mapping horizontal GR onto Typewell GR.", "geoanchor arms B, D"),
+            ("acal_beta", "Prefix-only affine offset of the horizontal-to-Typewell GR calibration.", "geoanchor arms B, D"),
+            ("acal_fit_rmse", "Prefix residual RMS of the affine calibration, in Typewell-GR z units.", "geoanchor arms B, D"),
+            ("acal_prefix_corr", "Pearson r between calibrated horizontal GR and Typewell GR on the visible prefix; a calibration-quality diagnostic.", "geoanchor arms B, D"),
+            ("acal_ok", "One when the prefix affine calibration passed its sanity bounds.", "geoanchor arms B, D"),
+            ("acal_gr_tw_z", "Horizontal GR mapped into Typewell GR space and z-scored (within-well interpolation of outages).", "geoanchor arms B, D"),
+            ("acal_roll_mean_51", "Rolling 51-row mean of the calibrated horizontal GR.", "geoanchor arms B, D"),
+            ("acal_roll_std_51", "Rolling 51-row std of the calibrated horizontal GR.", "geoanchor arms B, D"),
+            ("acal_gr_grad", "Local per-foot gradient of the calibrated horizontal GR log.", "geoanchor arms B, D"),
+        )
+    ),
+    *tuple(
+        _derived(
+            name,
+            "GR, Typewell GR, Typewell TVT, MD, TVT_input (prefix only)",
+            notes,
+            risk="none — datum scan scores GR versus Typewell GR only; no hidden label is readable",
+            used_by=used_by,
+        )
+        for name, notes, used_by in (
+            ("mb_shift1", "Best constant TVT datum shift of the GR/Typewell alignment scan (ft).", "geoanchor arms C, D"),
+            ("mb_shift2", "Second-best separated datum branch (equals mb_shift1 when the scan is unimodal).", "geoanchor arms C, D"),
+            ("mb_shift_hedged", "Trust-shrunk bimodal posterior-mean datum shift: w1*shift1 + (1-w1)*shift2.", "geoanchor arms C, D"),
+            ("mb_sep", "Separation between the two branch minima (0 when unimodal).", "geoanchor arms C, D"),
+            ("mb_bimodal", "One when the scan carries two plausible branch minima.", "geoanchor arms C, D"),
+            ("mb_cost_gap", "Cost gap between the branch minima, normalised by the median scan cost.", "geoanchor arms C, D"),
+            ("mb_w1", "Effective probability of branch 1, shrunk toward 0.5 by the prefix-trust diagnostic.", "geoanchor arms C, D"),
+            ("mb_confidence", "Peak distinctiveness of the winning datum: 1 - J1/median(J), in [0, 1].", "geoanchor arms C, D"),
+            ("mb_prefix_trust", "Prefix self-check of the scan: how close its best shift is to zero where the truth is visible.", "geoanchor arms C, D"),
+            ("mb_ok", "One when the datum scan ran with sufficient measured GR and a usable typewell.", "geoanchor arms C, D"),
+        )
+    ),
+    # Arm-E well-level gate design rows (well-level GBDT inputs). All are
+    # target-free diagnostics of the candidate corrections, calibration and
+    # prefix; candidate identity flags are one-hot indicators, not measured
+    # data (provenanced to MD only as a harmless root).
+    *tuple(
+        _derived(
+            name,
+            parents,
+            notes,
+            risk="none — computed from InferenceTask only, per boundary, cross-fitted by well",
+            used_by="geoanchor arm E gate",
+        )
+        for name, parents, notes in (
+            ("gate_prefix_len", "MD, TVT_input (prefix only)", "Visible prefix length at the boundary."),
+            ("gate_suffix_len", "MD", "Rows to predict past the boundary."),
+            ("gate_gr_missing_suffix", "GR", "GR missing fraction in the prediction region."),
+            ("gate_prefix_gr_missing", "GR", "GR missing fraction in the visible prefix."),
+            ("gate_tvt_std_prefix", "TVT_input (prefix only)", "Std of the visible TVT_input prefix."),
+            ("gate_tvt_range_prefix", "TVT_input (prefix only)", "Range of the visible TVT_input prefix."),
+            ("gate_tvt_slope_300", "MD, TVT_input (prefix only)", "Least-squares prefix TVT slope over the last 300 ft."),
+            ("gate_anchor", "TVT_input (prefix only)", "Last known TVT before the boundary."),
+            ("gate_acal_alpha", "GR, Typewell GR, Typewell TVT, TVT_input (prefix only)", "Affine calibration gain (prefix-only fit)."),
+            ("gate_acal_beta", "GR, Typewell GR, Typewell TVT, TVT_input (prefix only)", "Affine calibration offset normalised by Typewell GR std."),
+            ("gate_acal_fit_rmse", "GR, Typewell GR, Typewell TVT, TVT_input (prefix only)", "Prefix affine fit residual RMS in z units."),
+            ("gate_acal_prefix_corr", "GR, Typewell GR, Typewell TVT, TVT_input (prefix only)", "Prefix correlation of calibrated GR with Typewell GR."),
+            ("gate_mb_shift1", "GR, Typewell GR, Typewell TVT, MD, TVT_input (prefix only)", "Winning datum shift of the GR scan."),
+            ("gate_mb_sep", "GR, Typewell GR, Typewell TVT, MD, TVT_input (prefix only)", "Branch separation of the GR scan (0 when unimodal)."),
+            ("gate_mb_cost_gap", "GR, Typewell GR, Typewell TVT, MD, TVT_input (prefix only)", "Normalised cost gap between scan branches."),
+            ("gate_mb_confidence", "GR, Typewell GR, Typewell TVT, MD, TVT_input (prefix only)", "Datum-scan peak distinctiveness in [0, 1]."),
+            ("gate_mb_bimodal", "GR, Typewell GR, Typewell TVT, MD, TVT_input (prefix only)", "One when the scan is bimodal."),
+            ("gate_mb_prefix_trust", "GR, Typewell GR, Typewell TVT, MD, TVT_input (prefix only)", "Prefix-trust diagnostic of the datum scan."),
+            ("gate_pf_confidence", "GR, Typewell GR, Typewell TVT, MD, X, Y, Z, TVT_input (prefix only)", "Particle-filter mean confidence at the boundary."),
+            ("gate_pf_spread", "GR, Typewell GR, Typewell TVT, MD, X, Y, Z, TVT_input (prefix only)", "Particle-filter mean branch spread."),
+            ("gate_pf_fallback", "GR, Typewell GR, Typewell TVT, MD, X, Y, Z, TVT_input (prefix only)", "Fraction of prediction rows where the particle filter used its geometry fallback (GR outage)."),
+            ("gate_beam_confidence", "GR, Typewell GR, Typewell TVT, MD, X, Y, Z, TVT_input (prefix only)", "Beam-search mean confidence at the boundary."),
+            ("gate_beam_spread", "GR, Typewell GR, Typewell TVT, MD, X, Y, Z, TVT_input (prefix only)", "Beam-search mean branch spread."),
+            ("gate_beam_fallback", "GR, Typewell GR, Typewell TVT, MD, X, Y, Z, TVT_input (prefix only)", "Fraction of prediction rows where beam search used its geometry fallback (GR outage)."),
+            ("gate_track_disagreement", "GR, Typewell GR, Typewell TVT, MD, X, Y, Z, TVT_input (prefix only)", "Mean |PF track - Beam track| over the early prediction rows; GR-scan separation when only one family is available."),
+            ("gate_cand_pf", "MD", "One-hot indicator: the PF candidate (identity flag, not a measurement)."),
+            ("gate_cand_beam", "MD", "One-hot indicator: the Beam candidate (identity flag, not a measurement)."),
+            ("gate_cand_mean", "MD", "One-hot indicator: the PF/Beam-mean candidate (identity flag, not a measurement)."),
+        )
+    ),
 )
 
 
