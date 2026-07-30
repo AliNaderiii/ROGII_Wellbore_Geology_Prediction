@@ -56,6 +56,9 @@ reports/task_presentation_images/
 !reports/geoanchor_experiment.md
 !reports/synthetic_geoanchor/
 !reports/synthetic_geoanchor/**
+# Staged safe-alignment experiment (stages A-F): authored pre-registration,
+# promotion rule and synthetic harness verification. No competition data.
+!reports/safe_alignment_protocol.md
 # Output of the synthetic harness-verification run: no competition data, kept
 # as executable proof of what the real run produces.
 !reports/synthetic/
