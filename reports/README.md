@@ -21,6 +21,7 @@ that must not be redistributed).
 | `geoanchor_experiment.md` | Pre-registration of the controlled GeoAnchor experiment (arms A–E: affine GR calibration, multi-branch alignment, bimodal uncertainty, prefix pseudo-holdout, well-level GBDT gate for PF/Beam corrections): ideas mapped to the studied public notebooks, forbidden list, gate rules, decision rule |
 | `neural_protocol.md` | Leakage-safe PyTorch MLP/GRU/TCN residual protocol, fold-safe training, hybrid gate and Kaggle execution instructions |
 | `neural_phase1_status.md` | Phase-1 implementation status; explicitly separates unavailable real-data evidence from synthetic plumbing evidence |
+| `safe_alignment_protocol.md` | Pre-registration of the staged safe-alignment experiment (stages A–F: Ridge anchor, bounded PF/Beam blend, affine heel calibration, branch/bimodal hedging, robust IRLS projection, multi-cut prefix verification + tail guard), promotion rule, Kaggle execution instructions and synthetic harness verification |
 | `synthetic_geoanchor/` | Executed GeoAnchor A–E run on a **synthetic** field — banner-stamped `synthetic_geoanchor_*` tables/JSON, never a competition result |
 
 ## Generated — git-ignored, written by the runner

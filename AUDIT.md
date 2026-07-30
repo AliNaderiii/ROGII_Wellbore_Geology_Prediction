@@ -34,6 +34,8 @@ python -m src.submission --submission submission.csv \
 python scripts/smoke_test_loader.py --expect-train 773 --expect-test 3 --full-scan
 python scripts/run_feature_ablation.py     # historical A/B/C/D Ridge feature ablation
 python scripts/run_validation.py --particle-filter --beam-search --max-wells 100
+python scripts/run_safe_alignment_experiment.py --max-wells 60          # staged A–F smoke
+python scripts/run_safe_alignment_experiment.py --expect-wells 770 --n-splits 3  # real discovery
 python scripts/diagnose_dip_alignment.py   # REJECTED dip-alignment diagnostics
 python scripts/run_neural_experiment.py --expect-train 773 --expect-test 3  # diagnostic only; no submission
 python -m pytest tests -q                  # repository + neural safety tests, synthetic fixtures only
