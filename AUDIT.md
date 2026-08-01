@@ -41,6 +41,39 @@ python scripts/run_neural_experiment.py --expect-train 773 --expect-test 3  # di
 python -m pytest tests -q                  # repository + neural safety tests, synthetic fixtures only
 ```
 
+### Trajectory stack pipeline (current candidate generator)
+
+```bash
+# 1. 100-well smoke pass (writes synthetic_* reports only — not the real universe)
+python scripts/run_trajectory_stack_experiment.py --max-wells 100
+
+# 2. Real 770-well validation (5 outer folds x 2 protocols, inner OOF
+#    gate/blend selection; writes real_trajectory_stack_* + decision JSON).
+python scripts/run_trajectory_stack_experiment.py --expect-wells 770
+
+# 3. Submission — ONLY when step 2's real decision JSON promotes an arm:
+python scripts/build_gated_submission.py \
+  --require-promotion /kaggle/working/reports/real_trajectory_stack_decision.json
+#    (writes /kaggle/working/final_submission/submission.csv,
+#     /kaggle/working/submission.csv and submission_audit.json).
+#    Otherwise submit with the validated Ridge builder:
+python scripts/build_final_submission.py
+# For the hidden-test finale rerun step 3 WITHOUT --expect-test 3: IDs and
+# row counts come from the active sample_submission.csv only.
+```
+
+Arms compared: `ridge_default` (anchor + exact fallback, shared instance),
+`lgbm_residual`, `catboost_residual` (well-disjoint early stopping),
+`oof_meta_stack` (kill-switched OOF Ridge meta-stack), `gated_trajectory`
+(Ridge + guarded correction over PF/Beam/mean, bimodal hedge and booster
+residual tracks; all 7 gate rules; warmup ramp; shrink factors). The
+pre-registered 8-rule promotion rule is in
+`src/trajectory_stack_decision.py` and `reports/trajectory_stack_plan.md`;
+a submission is gated behind it. Runtime flags: `--skip-lightgbm`,
+`--skip-catboost`, `--boost-max-iter`, `--boost-estop-rounds`,
+`--boost-threads`, `--inner-splits`, `--tune-splits`, `--path-cache`
+(target-free PF/Beam npz cache reuse).
+
 ### Real A/B/C/D ablation on Kaggle
 
 ```bash

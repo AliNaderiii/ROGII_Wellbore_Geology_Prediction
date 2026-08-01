@@ -858,6 +858,38 @@ DERIVED_FEATURES: tuple[FeatureSpec, ...] = (
             ("gate_cand_mean", "MD", "One-hot indicator: the PF/Beam-mean candidate (identity flag, not a measurement)."),
         )
     ),
+    # Trajectory-stack gate design rows (src/trajectory_stack.py). Same
+    # provenance discipline as the arm-E gate rows: every entry is a
+    # target-free diagnostic computed per boundary from the allowed roots;
+    # the multi-scale rows summarise GR/Typewell-GR datum scans at fixed
+    # half-ranges; the oof-skill scalars are fold-training OOF residual
+    # quality of the cross-fitted booster analogues (a fixed fold-level
+    # scalar at inference, never a validation-derived value).
+    *tuple(
+        _derived(
+            name,
+            parents,
+            notes,
+            risk="none — computed from InferenceTask only, per boundary, cross-fitted by well",
+            used_by="trajectory stack gate / meta-stack",
+        )
+        for name, parents, notes in (
+            ("gate_ms_ptp", "GR, Typewell GR, Typewell TVT, MD, TVT_input (prefix only)", "Peak-to-peak range of the datum-scan shift across the a-priori scan half-ranges {8, 15, 25} ft (multi-scale disagreement)."),
+            ("gate_ms_dominant_shift", "GR, Typewell GR, Typewell TVT, MD, TVT_input (prefix only)", "Median datum-scan shift across the multi-scale half-ranges."),
+            ("gate_ms_n_agree", "GR, Typewell GR, Typewell TVT, MD, TVT_input (prefix only)", "Number of scan scales agreeing with the dominant shift within 1.5 ft."),
+            ("gate_ms_min_conf", "GR, Typewell GR, Typewell TVT, MD, TVT_input (prefix only)", "Minimum datum-scan confidence across the multi-scale half-ranges."),
+            ("gate_lgbm_oof_skill", "MD, X, Y, Z, GR, TVT_input (prefix only), Typewell TVT, Typewell GR", "Fold-training inner-OOF residual RMSE skill of the cross-fitted LightGBM analogue vs the anchor, clipped to [0, 1]; a fixed fold-level scalar at inference."),
+            ("gate_cat_oof_skill", "MD, X, Y, Z, GR, TVT_input (prefix only), Typewell TVT, Typewell GR", "Fold-training inner-OOF residual RMSE skill of the cross-fitted CatBoost analogue vs the anchor, clipped to [0, 1]; a fixed fold-level scalar at inference."),
+            ("gate_cand_mb", "MD", "One-hot indicator: the multi-branch hedged candidate (identity flag, not a measurement)."),
+            ("gate_cand_lgbm", "MD", "One-hot indicator: the LightGBM residual candidate (identity flag, not a measurement)."),
+            ("gate_cand_cat", "MD", "One-hot indicator: the CatBoost residual candidate (identity flag, not a measurement)."),
+            ("meta_res_ridge", "MD, X, Y, Z, GR, TVT_input (prefix only), Typewell TVT, Typewell GR", "OOF Ridge anchored-residual prediction feeding the meta-stack (cross-fitted by well; fold-fitted at inference)."),
+            ("meta_res_lgbm", "MD, X, Y, Z, GR, TVT_input (prefix only), Typewell TVT, Typewell GR", "OOF LightGBM anchored-residual prediction feeding the meta-stack (cross-fitted by well; fold-fitted at inference)."),
+            ("meta_res_cat", "MD, X, Y, Z, GR, TVT_input (prefix only), Typewell TVT, Typewell GR", "OOF CatBoost anchored-residual prediction feeding the meta-stack (cross-fitted by well; fold-fitted at inference)."),
+            ("meta_dmd", "MD", "Feet drilled past the boundary for the stacked row (same construction as dmd, scoped to the meta-stack design)."),
+            ("meta_log1p_dmd", "MD", "log(1 + dmd) for the stacked row (same construction as log1p_dmd, scoped to the meta-stack design)."),
+        )
+    ),
 )
 
 

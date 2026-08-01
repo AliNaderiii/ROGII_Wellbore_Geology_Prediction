@@ -63,4 +63,7 @@ reports/task_presentation_images/
 # as executable proof of what the real run produces.
 !reports/synthetic/
 !reports/synthetic/**
+# Trajectory-stack pipeline: authored working plan + pre-registered promotion
+# rule (no competition data). Machine-generated run tables stay ignored.
+!reports/trajectory_stack_plan.md
 
