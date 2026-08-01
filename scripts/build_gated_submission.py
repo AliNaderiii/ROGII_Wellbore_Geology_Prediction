@@ -64,6 +64,7 @@ from src.cache import FeatureCache
 from src.data import discover_wells, load_well
 from src.tasks import make_task, TaskConstructionError
 from src.baselines import RidgeBaseline
+from src.device import DEVICE_CHOICES, resolve_device
 from src.geoanchor import MemoizedPathGenerator
 from src.manifest import verify_manifest_against_data, assert_manifest_matches_data
 from src.submission import validate_submission
@@ -166,11 +167,21 @@ def main(argv=None) -> int:
     ap.add_argument("--boost-max-iter", type=int, default=400)
     ap.add_argument("--boost-estop-rounds", type=int, default=50)
     ap.add_argument("--boost-threads", type=int, default=4)
+    ap.add_argument("--device", choices=list(DEVICE_CHOICES), default="auto",
+                    help="where the LightGBM/CatBoost residual models train "
+                         "(auto|cpu|gpu). GPU is used only when the installed "
+                         "library really supports it; otherwise the builder "
+                         "falls back to CPU and records the exact reason.")
     ap.add_argument("--path-cache", default=None)
     ap.add_argument("--seed", type=int, default=None,
                     help="defaults to the seed recorded in the promotion decision")
     args = ap.parse_args(argv)
     t_start = time.perf_counter()
+
+    # CPU/GPU only affects the boosted residual models; a GPU that cannot be
+    # initialised downgrades to CPU with a logged reason instead of aborting.
+    device = resolve_device(args.device, log=lambda m: print(f"[device]{m.rstrip()}"))
+    print(f"[device] {device.summary_line()}")
 
     decision = load_promotion_decision(Path(args.require_promotion))
     arm = str(decision["promoted_arm"])
@@ -326,18 +337,19 @@ def main(argv=None) -> int:
         stack_config=StackConfig(
             inner_splits=args.inner_splits, tune_splits=args.tune_splits,
             boost_max_iter=args.boost_max_iter, boost_estop_rounds=args.boost_estop_rounds,
-            boost_threads=args.boost_threads, seed=seed,
+            boost_threads=args.boost_threads, device=device, seed=seed,
         ),
         gate_config=TrajectoryGateConfig(
             inner_splits=args.inner_splits, tune_splits=args.tune_splits,
             boost_max_iter=args.boost_max_iter, boost_estop_rounds=args.boost_estop_rounds,
-            boost_threads=args.boost_threads, seed=seed,
+            boost_threads=args.boost_threads, device=device, seed=seed,
         ),
         protocol="final",
         fold=-1,
         decision_log=arm_decisions,
         boost_kw=dict(seed=seed, max_iter=args.boost_max_iter,
-                      estop_rounds=args.boost_estop_rounds, thread_count=args.boost_threads),
+                      estop_rounds=args.boost_estop_rounds, thread_count=args.boost_threads,
+                      device=device),
     )
     model = models[arm]
     t_fit = time.perf_counter()
@@ -493,6 +505,7 @@ def main(argv=None) -> int:
             "boost_max_iter": args.boost_max_iter,
             "boost_estop_rounds": args.boost_estop_rounds,
             "boost_threads": args.boost_threads,
+            **device.as_report(),
             "seed": seed,
         },
         "arm_fit_info": arm_info,

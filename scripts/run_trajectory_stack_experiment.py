@@ -52,6 +52,7 @@ import numpy as np
 import pandas as pd
 
 from src.baselines import RidgeBaseline
+from src.device import DEVICE_CHOICES, resolve_device
 from src.cache import FeatureCache
 from src.data import discover_wells, load_well
 from src.geoanchor import MemoizedPathGenerator
@@ -185,6 +186,12 @@ def main(argv=None) -> int:
     ap.add_argument("--boost-max-iter", type=int, default=400)
     ap.add_argument("--boost-estop-rounds", type=int, default=50)
     ap.add_argument("--boost-threads", type=int, default=4)
+    ap.add_argument("--device", choices=list(DEVICE_CHOICES), default="auto",
+                    help="where the LightGBM/CatBoost residual models train: "
+                         "'cpu' forces CPU, 'gpu' asks for GPU, 'auto' (default) "
+                         "uses GPU only when the installed library really supports "
+                         "it and otherwise falls back to CPU with a logged reason. "
+                         "Ridge, PF/Beam and the gate are unaffected.")
     ap.add_argument("--path-cache", default=None,
                     help="optional directory for the target-free PF/Beam npz cache")
     ap.add_argument("--reports-dir", default=None)
@@ -195,6 +202,10 @@ def main(argv=None) -> int:
     verbose = not args.quiet
     if args.inner_splits < 2 or args.tune_splits < 2:
         raise SystemExit("--inner-splits and --tune-splits must be >= 2")
+
+    # Device resolution never raises for a device reason: a missing or broken
+    # GPU stack downgrades to CPU with the exact reason recorded.
+    device = resolve_device(args.device, log=(print if verbose else None))
 
     t_start = time.perf_counter()
     reports_dir = ensure_reports_dir() if args.reports_dir is None else Path(args.reports_dir)
@@ -263,6 +274,7 @@ def main(argv=None) -> int:
         "boost_max_iter": args.boost_max_iter,
         "boost_estop_rounds": args.boost_estop_rounds,
         "boost_threads": args.boost_threads,
+        **device.as_report(),
         "use_lightgbm": not args.skip_lightgbm and HAVE_LIGHTGBM,
         "use_catboost": not args.skip_catboost and HAVE_CATBOOST,
         "label": args.label,
@@ -301,6 +313,7 @@ def main(argv=None) -> int:
         boost_threads=args.boost_threads,
         use_lightgbm=not args.skip_lightgbm,
         use_catboost=not args.skip_catboost,
+        device=device,
         seed=args.seed,
     )
     gate_config = TrajectoryGateConfig(
@@ -311,6 +324,7 @@ def main(argv=None) -> int:
         boost_threads=args.boost_threads,
         use_lightgbm=not args.skip_lightgbm,
         use_catboost=not args.skip_catboost,
+        device=device,
         seed=args.seed,
     )
     boost_kw = dict(
@@ -318,6 +332,7 @@ def main(argv=None) -> int:
         max_iter=args.boost_max_iter,
         estop_rounds=args.boost_estop_rounds,
         thread_count=args.boost_threads,
+        device=device,
     )
 
     memo: dict = {}
@@ -433,6 +448,7 @@ def main(argv=None) -> int:
                     info = dict(model.stack.info)
                     info.update({"arm": name, "protocol": protocol, "fold": fold.index,
                                  "fit_seconds": info.get("fit_seconds", 0.0)})
+                    info.update(device.as_report())
                     model_infos.append(info)
                 elif name == ARM_GATED:
                     info = dict(vars(model.info))
@@ -448,12 +464,17 @@ def main(argv=None) -> int:
                         "oof_skills": dict(model._oof_skills),
                     })
                     info.update({"protocol": protocol, "fold": fold.index})
+                    info.update(device.as_report())
                     model_infos.append(info)
                 else:
                     learner = models.get(name)
                     if learner is not None and hasattr(learner, "info") and hasattr(learner.info, "library"):
                         info = asdict(learner.info)
                         info.update({"arm": name, "protocol": protocol, "fold": fold.index})
+                        # BoostFitInfo already carries the five device keys
+                        # for the device the learner actually trained on.
+                        for k, v in device.as_report().items():
+                            info.setdefault(k, v)
                         model_infos.append(info)
             fold_records.append(
                 {
@@ -633,6 +654,7 @@ def main(argv=None) -> int:
                  f"tune sub-folds {args.tune_splits}, seed {args.seed}")
     lines.append(f"- runtime: {environment['runtime_seconds']:.1f}s, "
                  f"peak RSS {environment['peak_rss_mb']:.0f} MB")
+    lines.append(f"- {device.summary_line()}")
     lines.append(f"- lightgbm: {'yes' if HAVE_LIGHTGBM else 'NO (arm unavailable)'}, "
                  f"catboost: {'yes' if HAVE_CATBOOST else 'NO (arm unavailable)'}")
     lines.append("")

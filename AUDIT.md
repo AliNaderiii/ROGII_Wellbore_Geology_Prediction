@@ -62,6 +62,71 @@ python scripts/build_final_submission.py
 # row counts come from the active sample_submission.csv only.
 ```
 
+#### GPU runbook (Kaggle T4/P100 accelerator sessions)
+
+`--device {auto,cpu,gpu}` selects where the **LightGBM and CatBoost residual
+models only** train. Ridge, PF/Beam, the gate, feature provenance and the
+promotion rules are byte-for-byte unaffected by this flag.
+
+| mode | LightGBM | CatBoost |
+| --- | --- | --- |
+| `cpu` | `device_type="cpu"`, `n_jobs=--boost-threads`, `deterministic=True` | `task_type="CPU"`, `thread_count=--boost-threads` |
+| `gpu` | `device_type="gpu"`, `gpu_use_dp=False`, `deterministic=True`, `force_row_wise=True` | `task_type="GPU"`, `devices="0"`, `allow_writing_files=False` |
+| `auto` (default) | GPU only if a 1-round GPU probe fit really succeeds, else CPU | same, probed independently |
+
+`auto` and `gpu` never abort the experiment: a failed GPU probe is caught, the
+exact library error is logged and recorded, and that library silently drops to
+CPU. The two probes are independent, so LightGBM may run on the GPU while
+CatBoost stays on the CPU.
+
+```bash
+# 0. Kaggle notebook: Settings -> Accelerator -> GPU T4 x2 (or P100), then:
+pip install -q lightgbm catboost
+python -c "from catboost.utils import get_gpu_device_count; print('catboost GPUs:', get_gpu_device_count())"
+nvidia-smi
+
+# 1. GPU smoke pass (100 wells; confirms the GPU backend initialises and
+#    prints the resolved device line before any fold runs)
+python scripts/run_trajectory_stack_experiment.py --device gpu --max-wells 100
+
+# 2. Real 770-well validation on GPU
+python scripts/run_trajectory_stack_experiment.py --device gpu --expect-wells 770
+
+# 3. Promoted-arm submission on GPU (same flag, same semantics)
+python scripts/build_gated_submission.py --device gpu \
+  --require-promotion /kaggle/working/reports/real_trajectory_stack_decision.json
+
+# Let the session decide (GPU when usable, CPU otherwise — the default):
+python scripts/run_trajectory_stack_experiment.py --device auto --expect-wells 770
+
+# Force the deterministic CPU path (reproducibility / CPU-only sessions);
+# --boost-threads controls LightGBM n_jobs and CatBoost thread_count:
+python scripts/run_trajectory_stack_experiment.py --device cpu --boost-threads 4 --expect-wells 770
+python scripts/build_gated_submission.py --device cpu --boost-threads 4 \
+  --require-promotion /kaggle/working/reports/real_trajectory_stack_decision.json
+
+# Session-wide default without editing commands (auto only):
+export ROGII_DEVICE=cpu
+```
+
+Verify what actually ran — the five device keys are written to
+`{prefix}trajectory_stack_run_environment.json`, to every row of
+`{prefix}trajectory_stack_model_infos.csv`, and to `submission_audit.json`:
+
+```bash
+python - <<'PY'
+import json, glob
+env = json.load(open(sorted(glob.glob('/kaggle/working/reports/*trajectory_stack_run_environment.json'))[-1]))
+print({k: env[k] for k in ('device_requested', 'device_selected',
+                           'lgbm_device', 'catboost_device', 'gpu_fallback_reason')})
+PY
+```
+
+A non-empty `gpu_fallback_reason` (e.g.
+`lightgbm_gpu_unavailable: LightGBMError: No OpenCL device found`) means that
+library ran on the CPU; the run itself is still valid and comparable, because
+the CPU path is the same deterministic path as `--device cpu`.
+
 Arms compared: `ridge_default` (anchor + exact fallback, shared instance),
 `lgbm_residual`, `catboost_residual` (well-disjoint early stopping),
 `oof_meta_stack` (kill-switched OOF Ridge meta-stack), `gated_trajectory`
