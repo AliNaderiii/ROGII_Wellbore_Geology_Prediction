@@ -110,7 +110,11 @@ decision drives the full 9031-row contract path with validation PASS.
 
 ## Execution plan for the Kaggle session (outside this sandbox)
 
-1. `pip install lightgbm catboost` (stock Kaggle image has both).
+1. `pip install lightgbm catboost` (stock Kaggle image has both). On a GPU
+   session add `--device gpu` to steps 2-4 (or leave the `auto` default,
+   which probes the GPU and falls back to CPU with a logged reason); see the
+   GPU runbook in `AUDIT.md` for the exact commands and the five device keys
+   written to `run_environment.json`.
 2. Smoke: `python scripts/run_trajectory_stack_experiment.py --max-wells 100`
    (validates runtime/memory; writes synthetic_* only — 100 wells is not the
    real universe).

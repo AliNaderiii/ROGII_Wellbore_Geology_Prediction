@@ -52,6 +52,7 @@ from src.geoanchor import (
     multibranch_scan,
     nested_pseudo_task,
 )
+from src.device import CPU_RESOLUTION, DeviceResolution
 from src.manifest import assert_safe_features
 from src.safe_alignment import _ramp
 from src.tasks import InferenceTask, WellTask
@@ -203,6 +204,12 @@ class BoostFitInfo:
     #: learner is cross-fitted inside a fold: (anchor_oof - learner_oof) /
     #: anchor_oof, clipped to [0, 1]. Target-free at inference time.
     oof_skill: float = 0.0
+    #: Device provenance, mirrored into every model report row.
+    device_requested: str = "cpu"
+    device_selected: str = "cpu"
+    lgbm_device: str = "cpu"
+    catboost_device: str = "cpu"
+    gpu_fallback_reason: str = ""
 
 
 class _BoostedResidual(RidgeBaseline):
@@ -226,6 +233,7 @@ class _BoostedResidual(RidgeBaseline):
         eval_fraction: float = 0.2,
         min_wells_for_eval: int = 16,
         thread_count: int = 4,
+        device: DeviceResolution | None = None,
     ):
         super().__init__(alignment_features=False)
         self.seed = int(seed)
@@ -234,8 +242,21 @@ class _BoostedResidual(RidgeBaseline):
         self.eval_fraction = float(eval_fraction)
         self.min_wells_for_eval = int(min_wells_for_eval)
         self.thread_count = int(thread_count)
+        #: Where this learner trains. Defaults to the pure-CPU resolution so
+        #: every existing caller keeps its exact previous behaviour.
+        self.device = device or CPU_RESOLUTION
         self.model = None
-        self.info = BoostFitInfo(library=self._lib)
+        self.info = BoostFitInfo(library=self._lib, **self._device_info_fields())
+
+    def _device_info_fields(self) -> dict:
+        dev = getattr(self, "device", None) or CPU_RESOLUTION
+        return dev.as_report()
+
+    @property
+    def effective_device(self) -> str:
+        """``cpu``/``gpu`` for *this* library (not the run-wide selection)."""
+        dev = self.device or CPU_RESOLUTION
+        return dev.catboost_device if self._lib == "catboost" else dev.lgbm_device
 
     # — implemented per library ------------------------------------------------
     def _fit_booster(self, Xtr, ytr, Xev, yev):  # pragma: no cover - abstract
@@ -250,7 +271,7 @@ class _BoostedResidual(RidgeBaseline):
     # — shared fit plumbing ------------------------------------------------------
     def fit(self, tasks, **kw):
         t0 = time.perf_counter()
-        self.info = BoostFitInfo(library=self._lib)
+        self.info = BoostFitInfo(library=self._lib, **self._device_info_fields())
         assert_no_blocked_wells([t.well_id for t in tasks], context=f"{self.name} fit")
         if not self._have_library():
             raise RuntimeError(
@@ -318,10 +339,11 @@ class LightGBMResidual(_BoostedResidual):
             "bagging_freq": 1,
             "lambda_l2": 1.0,
             "verbosity": -1,
-            "num_threads": self.thread_count,
             "seed": self.seed,
             "deterministic": True,
         }
+        # Device parameters last: they own device_type/n_jobs/gpu_use_dp.
+        params.update((self.device or CPU_RESOLUTION).lgbm_params(self.thread_count))
         dtrain = _lgb.Dataset(Xtr, label=ytr, free_raw_data=True)
         callbacks = []
         valid_sets = None
@@ -361,10 +383,8 @@ class CatBoostResidual(_BoostedResidual):
             loss_function="RMSE",
             random_seed=self.seed,
             verbose=False,
-            allow_writing_files=False,
-            thread_count=self.thread_count,
-            task_type="CPU",
         )
+        params.update((self.device or CPU_RESOLUTION).catboost_params(self.thread_count))
         train_pool = Pool(Xtr, ytr)
         eval_pool = None
         if Xev is not None and len(yev) >= 50:
@@ -384,15 +404,21 @@ class CatBoostResidual(_BoostedResidual):
 
 
 def build_residual_learners(
-    *, seed: int, use_lightgbm: bool = True, use_catboost: bool = True, **boost_kw
+    *,
+    seed: int,
+    use_lightgbm: bool = True,
+    use_catboost: bool = True,
+    device: DeviceResolution | None = None,
+    **boost_kw,
 ) -> dict:
     """The residual learner set for the stack/gate. Unavailable libraries are
     skipped at *fit* time with an honest failure record (never substituted)."""
     out: dict[str, _BoostedResidual] = {}
+    device = device or CPU_RESOLUTION
     if use_lightgbm and HAVE_LIGHTGBM:
-        out["lgbm"] = LightGBMResidual(seed=seed, **boost_kw)
+        out["lgbm"] = LightGBMResidual(seed=seed, device=device, **boost_kw)
     if use_catboost and HAVE_CATBOOST:
-        out["cat"] = CatBoostResidual(seed=seed, **boost_kw)
+        out["cat"] = CatBoostResidual(seed=seed, device=device, **boost_kw)
     return out
 
 
@@ -421,6 +447,8 @@ class StackConfig:
     boost_threads: int = 4
     use_lightgbm: bool = True
     use_catboost: bool = True
+    #: CPU/GPU resolution for the boosted residual learners only.
+    device: DeviceResolution = CPU_RESOLUTION
     seed: int = 0
 
 
@@ -491,6 +519,7 @@ class OOFMetaStack:
             max_iter=self.config.boost_max_iter,
             estop_rounds=self.config.boost_estop_rounds,
             thread_count=self.config.boost_threads,
+            device=self.config.device,
         )
         for fold in inner:
             train_inner = [by_id[w] for w in fold.train_ids if w in by_id]
@@ -604,6 +633,7 @@ class OOFMetaStack:
             max_iter=cfg.boost_max_iter,
             estop_rounds=cfg.boost_estop_rounds,
             thread_count=cfg.boost_threads,
+            device=cfg.device,
         )
         learners = build_residual_learners(
             seed=cfg.seed + 900,
@@ -877,6 +907,8 @@ class TrajectoryGateConfig:
     boost_threads: int = 4
     use_lightgbm: bool = True
     use_catboost: bool = True
+    #: CPU/GPU resolution for the boosted residual learners only.
+    device: DeviceResolution = CPU_RESOLUTION
     min_pseudo_points: int = 25
     seed: int = 0
 
@@ -1057,6 +1089,7 @@ class GatedTrajectoryStack(BaselineModel):
             max_iter=self.config.boost_max_iter,
             estop_rounds=self.config.boost_estop_rounds,
             thread_count=self.config.boost_threads,
+            device=self.config.device,
         )
 
     @staticmethod
@@ -1627,6 +1660,7 @@ def build_stack_models(
     fold: int = -1,
     decision_log: list | None = None,
     boost_kw: dict | None = None,
+    device: DeviceResolution | None = None,
 ) -> dict[str, BaselineModel]:
     """Build the requested arms, sharing the *same* anchor instance.
 
@@ -1635,14 +1669,18 @@ def build_stack_models(
     """
     arms = tuple(dict.fromkeys(arms))
     models: dict[str, BaselineModel] = {}
-    boost_kw = boost_kw or {}
+    boost_kw = dict(boost_kw or {})
+    # An explicit `device=` wins; otherwise honour a device already inside
+    # boost_kw, else stay on the pure-CPU default.
+    device = device or boost_kw.pop("device", None) or CPU_RESOLUTION
+    boost_kw.pop("device", None)
     for arm in arms:
         if arm == ARM_RIDGE:
             models[arm] = anchor_model
         elif arm == ARM_LGBM:
-            models[arm] = LightGBMResidual(**boost_kw)
+            models[arm] = LightGBMResidual(device=device, **boost_kw)
         elif arm == ARM_CAT:
-            models[arm] = CatBoostResidual(**boost_kw)
+            models[arm] = CatBoostResidual(device=device, **boost_kw)
         elif arm == ARM_STACK:
             models[arm] = OOFMetaStackAnchor(
                 anchor_model=anchor_model,
