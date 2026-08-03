@@ -890,6 +890,102 @@ DERIVED_FEATURES: tuple[FeatureSpec, ...] = (
             ("meta_log1p_dmd", "MD", "log(1 + dmd) for the stacked row (same construction as log1p_dmd, scoped to the meta-stack design)."),
         )
     ),
+    # Alignment Stack v2 design rows (src/alignment_v2.py). All are
+    # target-free diagnostics computed per boundary from the allowed
+    # roots (MD, X, Y, Z, GR, Typewell TVT, Typewell GR, visible
+    # TVT_input prefix). The candidate identity / availability flags
+    # are one-hot indicators and are not measured data (provenanced to
+    # MD only as a harmless root).
+    *tuple(
+        _derived(
+            name,
+            parents,
+            notes,
+            risk="none — computed from InferenceTask only, per boundary, cross-fitted by well",
+            used_by="alignment v2 gate / OOF meta-stack v2",
+        )
+        for name, parents, notes in (
+            ("align_v2_cal_alpha_ptp", "GR, Typewell GR, Typewell TVT, TVT_input (prefix only)", "Peak-to-peak of the affine alpha across the multi-scale min_prefix_rows grid {40, 80, 160}."),
+            ("align_v2_cal_beta_ptp", "GR, Typewell GR, Typewell TVT, TVT_input (prefix only)", "Peak-to-peak of the affine beta across the multi-scale min_prefix_rows grid."),
+            ("align_v2_cal_fit_rmse_z", "GR, Typewell GR, Typewell TVT, TVT_input (prefix only)", "Dominant (largest-scale) prefix affine fit residual RMS in z units."),
+            ("align_v2_cal_prefix_corr", "GR, Typewell GR, Typewell TVT, TVT_input (prefix only)", "Prefix correlation of calibrated GR with Typewell GR from the dominant affine scale."),
+            ("align_v2_cal_confidence", "GR, TVT_input (prefix only)", "GR-missingness-aware affine calibration confidence, shrunk by suffix GR coverage."),
+            ("align_v2_cal_n_ok", "GR, Typewell GR, Typewell TVT, TVT_input (prefix only)", "Number of affine scales that passed their sanity bounds (0..3)."),
+            ("align_v2_cal_n_agree", "GR, Typewell GR, Typewell TVT, TVT_input (prefix only)", "Number of successful scales whose alpha agrees with the dominant within 2.0."),
+            ("align_v2_ms_dominant_shift", "GR, Typewell GR, Typewell TVT, MD, TVT_input (prefix only)", "Median datum-scan shift across the multi-scale half-ranges {12, 35, 100} ft."),
+            ("align_v2_ms_ptp", "GR, Typewell GR, Typewell TVT, MD, TVT_input (prefix only)", "Peak-to-peak of the per-scale dominant shifts; multi-scale branch disagreement."),
+            ("align_v2_ms_min_conf", "GR, Typewell GR, Typewell TVT, MD, TVT_input (prefix only)", "Minimum datum-scan confidence across the multi-scale half-ranges."),
+            ("align_v2_ms_n_agree", "GR, Typewell GR, Typewell TVT, MD, TVT_input (prefix only)", "Number of scan scales agreeing with the dominant shift within the agreement radius."),
+            ("align_v2_ms_n_ok", "GR, Typewell GR, Typewell TVT, MD, TVT_input (prefix only)", "Number of multi-scale scan scales that produced a usable shift (0..3)."),
+            ("align_v2_ms_confidence", "GR, Typewell GR, Typewell TVT, MD, TVT_input (prefix only)", "Aggregate multi-scale confidence in [0, 1]."),
+            ("align_v2_ms_prefix_trust", "GR, Typewell GR, Typewell TVT, MD, TVT_input (prefix only)", "Average prefix-trust diagnostic across the multi-scale scans."),
+            ("align_v2_dp_ok", "GR, Typewell GR, Typewell TVT, MD, TVT_input (prefix only)", "One when the bounded-curvature dynamic-programming path matcher succeeded."),
+            ("align_v2_dp_prefix_mismatch", "GR, Typewell GR, Typewell TVT, MD, TVT_input (prefix only)", "Mean absolute visible-prefix mismatch of the DP path against the known TVT."),
+            ("align_v2_dp_gr_misfit", "GR, Typewell GR, Typewell TVT, MD, TVT_input (prefix only)", "Clipped GR misfit of the DP path against the Typewell GR on the predicted region."),
+            ("align_v2_dp_smoothness", "GR, Typewell GR, Typewell TVT, MD, TVT_input (prefix only)", "Standard deviation of the per-row finite differences of the DP path."),
+            ("align_v2_dp_confidence", "GR, Typewell GR, Typewell TVT, MD, TVT_input (prefix only)", "Bounded confidence in [0, 1] combining prefix mismatch and GR misfit."),
+            ("align_v2_ens_n_available", "MD", "Number of available, non-fallback branches in the v2 ensemble (candidate identity / count flag)."),
+            ("align_v2_ens_n_fallback", "MD", "Number of branches that fell back to the anchor (candidate identity / count flag)."),
+            ("align_v2_ens_branch_disagreement", "MD", "Mean per-row std of the available branch corrections; the ensemble's internal disagreement."),
+            ("align_v2_ens_mean_correction_abs", "MD", "Mean absolute correction magnitude of the available branches."),
+            ("align_v2_ens_max_correction_abs", "MD", "Max absolute correction magnitude across the available branches."),
+            ("align_v2_ens_confidence", "MD", "Mean confidence across the available branches, in [0, 1]."),
+            ("align_v2_proj_ok", "MD, Z, TVT_input (prefix only)", "One when the robust stratigraphic projection succeeded and was applied."),
+            ("align_v2_proj_movement", "MD, Z, TVT_input (prefix only)", "Mean absolute movement of the projected path from the input candidate path."),
+            ("align_v2_proj_n_clipped", "MD, Z, TVT_input (prefix only)", "Number of rows where the projection's movement was clipped to the cap."),
+            ("align_v2_proj_clip_fraction", "MD, Z, TVT_input (prefix only)", "Fraction of predicted rows where the projection's movement was clipped."),
+            ("align_v2_proj_visible_prefix_mismatch", "MD, Z, TVT_input (prefix only)", "Visible-prefix verification of the projected path (0 on a well-formed fit)."),
+        )
+    ),
+    # OOF meta-stack v2 design rows (src.alignment_v2_model.py). These
+    # are summary scalars tiled across the predicted rows; each
+    # comes from the allowed roots only and is never the well's
+    # hidden TVT label. The candidate-correction means (multi_scale,
+    # dp_path, irls, branch_hedged) are mean corrections of the
+    # candidate paths, expressed in ft of TVT.
+    *tuple(
+        _derived(
+            name,
+            parents,
+            notes,
+            risk="none — summary scalar per boundary, never a per-row label",
+            used_by="OOF meta-stack v2",
+        )
+        for name, parents, notes in (
+            ("v2_dmd", "MD", "Feet drilled past the boundary (same as dmd, scoped to the v2 meta-stack design)."),
+            ("v2_log1p_dmd", "MD", "log(1 + dmd) (same as log1p_dmd, scoped to the v2 meta-stack design)."),
+            ("v2_corr_multi_scale", "GR, Typewell GR, Typewell TVT, MD, TVT_input (prefix only)", "Mean correction of the multi-scale alignment candidate relative to the Ridge anchor."),
+            ("v2_corr_dp", "GR, Typewell GR, Typewell TVT, MD, TVT_input (prefix only)", "Mean correction of the dynamic-programming path candidate relative to the Ridge anchor."),
+            ("v2_corr_irls", "GR, Typewell GR, Typewell TVT, MD, Z, TVT_input (prefix only)", "Mean correction of the robust IRLS stratigraphic projection candidate relative to the Ridge anchor."),
+            ("v2_corr_branch_hedged", "GR, Typewell GR, Typewell TVT, MD, TVT_input (prefix only)", "Mean correction of the branch-hedged ensemble candidate relative to the Ridge anchor."),
+            ("v2_disagreement", "GR, Typewell GR, Typewell TVT, MD, TVT_input (prefix only)", "Branch disagreement of the v2 ensemble (mean per-row std of the available branches)."),
+            ("v2_confidence", "GR, Typewell GR, Typewell TVT, MD, TVT_input (prefix only)", "Aggregate v2 ensemble confidence in [0, 1]."),
+            ("v2_gr_miss_suffix", "GR", "GR missing fraction in the prediction region (v2 meta-stack design)."),
+            ("v2_gr_miss_prefix", "GR", "GR missing fraction in the visible prefix (v2 meta-stack design)."),
+            ("v2_suffix_len", "MD", "Rows to predict past the boundary (v2 meta-stack design)."),
+            ("v2_prefix_len", "MD, TVT_input (prefix only)", "Visible prefix length at the boundary (v2 meta-stack design)."),
+        )
+    ),
+    # One-hot candidate identity flags for the v2 two-stage gate (the
+    # gate's GBDT needs to know which candidate each row is about).
+    # These are identity flags, not measured data; their manifest root
+    # is MD only as a harmless anchor (no actual measurement comes
+    # from MD).
+    *tuple(
+        _derived(
+            name,
+            "MD",
+            "One-hot candidate identity flag for the v2 two-stage gate (identity, not a measurement).",
+            risk="none — identity flag, never a measured data column",
+            used_by="alignment v2 gate",
+        )
+        for name in (
+            "v2_cand_multi_scale",
+            "v2_cand_dp_path",
+            "v2_cand_irls",
+            "v2_cand_branch_hedged",
+        )
+    ),
 )
 
 
